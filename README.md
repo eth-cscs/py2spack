@@ -4,7 +4,6 @@ Github repository for the CSCS internship project with the goal of developing a 
 ## Important links
 - [Detailed Project Description](<CSCS Internship Project Description.md>)
 - [Progress Report](<Progress Report.md>)
-- [Changelog](CHANGELOG.md)
 
 ## Example Python Package
 We created a simple python package called `example-python-package-intern-pyspack` located in `example-python-package/`, using `flit` as the build backend.  
