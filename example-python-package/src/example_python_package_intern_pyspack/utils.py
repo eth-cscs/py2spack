@@ -36,9 +36,10 @@ def display_packages(packages: dict):
         print(pkg, ":", version)
 
     failed = [pkg for pkg, version in packages.items() if version == "Parse Error"]
-    print("\nParse Errors:")
-    for pkg in failed:
-        print(pkg)
+    if failed:
+        print("\nParse Errors:")
+        for pkg in failed:
+            print(pkg)
 
 
 
