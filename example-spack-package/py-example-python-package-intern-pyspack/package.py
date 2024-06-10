@@ -32,6 +32,8 @@ class PyExamplePythonPackageInternPyspack(PythonPackage):
 
     license("MIT", checked_by="davhofer")
 
+    version("0.1.5", sha256="d0baa7538b28b69f16df448c75e0ca88daf7c4985f657fe2f6ae4bf7ae544830")
+    version("0.1.4", sha256="4621c04c34be92445ea40dfb3b0adbd331882d651c7c18e24963e84a4d280e1f")
     version("0.1.3", sha256="edc0077ed40e5f11eb6a9821f66283d0dbd1c446c9752bf53a9e0d633e297117")
 
     # Build dependencies
