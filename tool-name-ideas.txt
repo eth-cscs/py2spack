@@ -1,0 +1,9 @@
+pyspack
+py2spack
+pypi2spack
+pip2spack
+spackaging
+spack-gen
+py-spack-gen
+spackagen
+py2spack-converter

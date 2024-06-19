@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - parse_pyproject.py: Initial version of a parser for pyproject.toml files with subsequent conversion to a Spack package.
+- parse_pyproject.py: Added conversion of dependencies and markers using functionality from [pypi-to-spack-package](https://github.com/spack/pypi-to-spack-package).
 
 ### Removed
 - old files and directories.
