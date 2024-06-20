@@ -31,6 +31,7 @@ USE_SPACK_PREFIX = True
 # TODO: document/comment this code
 # TODO: check if everything works as expected
 
+# these python versions are not supported anymore, so we shouldn't need to consider them
 UNSUPPORTED_PYTHON = sv.VersionRange(
     sv.StandardVersion.typemin(), sv.StandardVersion.from_string("3.5")
 )
@@ -39,6 +40,7 @@ NAME_REGEX = re.compile(r"[-_.]+")
 
 LOCAL_SEPARATORS_REGEX = re.compile(r"[\._-]")
 
+# TODO: these are the only known python versions?
 KNOWN_PYTHON_VERSIONS = (
     (3, 6, 15),
     (3, 7, 17),
@@ -59,7 +61,7 @@ def _normalized_name(name: str) -> str:
 
 
 def _acceptable_version(version: str) -> Optional[pv.Version]:
-    """Maybe parse with packaging"""
+    """Try to parse version string using packaging."""
     try:
         v = pv.parse(version)
         # do not support post releases of prereleases etc.
@@ -70,10 +72,8 @@ def _acceptable_version(version: str) -> Optional[pv.Version]:
         return None
 
 
-# TODO: handle errors in requests lookup
 class JsonVersionsLookup:
-    """
-    Class for retrieving available versions of package from PyPI JSON API.
+    """Class for retrieving available versions of package from PyPI JSON API.
 
     Caches past requests.
     """
@@ -93,8 +93,14 @@ class JsonVersionsLookup:
                 f"Json lookup error (pkg={name}): status code {r.status_code}",
                 file=sys.stderr,
             )
+            if r.status_code == 404:
+                print(
+                    f"Package {name} not found on PyPI...",
+                    file=sys.stderr,
+                )
             return []
         versions = r.json()["versions"]
+        # parse and sort versions
         return sorted({vv for v in versions if (vv := _acceptable_version(v))})
 
     def _python_versions(self) -> List[pv.Version]:
@@ -102,7 +108,6 @@ class JsonVersionsLookup:
         return [
             pv.Version(f"{major}.{minor}.{patch}")
             for major, minor, patch in KNOWN_PYTHON_VERSIONS
-            # for p in range(1, patch + 1)
         ]
 
     def __getitem__(self, name: str) -> List[pv.Version]:
@@ -120,13 +125,21 @@ class JsonVersionsLookup:
 def _best_upperbound(
     curr: sv.StandardVersion, nxt: sv.StandardVersion
 ) -> sv.StandardVersion:
-    """Return the most general upperound that includes curr but not nxt. Invariant is that
-    curr < nxt."""
+    """Return the most general upper bound that includes curr but not nxt. Invariant is that
+    curr < nxt.
+
+    Here, "most general" means the differentiation should happen as high as possible in the version specifier hierarchy.
+    3.4.2.5,  3.4.5.1 -> 3.4.3 or 3.4.4, not 3.4.2.6
+    """
+    assert curr < nxt
     i = 0
     m = min(len(curr), len(nxt))
+    # find the first level in the version specifier hierarchy where the two versions differ
     while i < m and curr.version[0][i] == nxt.version[0][i]:
         i += 1
+
     if i == len(curr) < len(nxt):
+        # e.g. curr = 3.4, nxt = 3.4.5, i = 2
         release, _ = curr.version
         release += (
             0,
@@ -145,6 +158,11 @@ def _best_upperbound(
 def _best_lowerbound(
     prev: sv.StandardVersion, curr: sv.StandardVersion
 ) -> sv.StandardVersion:
+    """Return the most general lower bound that includes curr but not prev. Invarint is that
+    prev < curr.
+
+    Counterpart to _best_upperbound()
+    """
     i = 0
     m = min(len(curr), len(prev))
     while i < m and curr.version[0][i] == prev.version[0][i]:
@@ -209,44 +227,43 @@ def _packaging_to_spack_version(v: pv.Version) -> sv.StandardVersion:
         string, (tuple(release), tuple(prerelease)), separators
     )
 
-    # print(f"packaging to spack version: {str(v)} -> {str(spack_version)}")
-
     return spack_version
 
 
 def _condensed_version_list(
     _subset_of_versions: List[pv.Version], _all_versions: List[pv.Version]
 ) -> sv.VersionList:
+    """Create a minimal, condensed list of version ranges equivalent to the given subset of all versions."""
     # Sort in Spack's order, which should in principle coincide with packaging's order, but may
     # not in unforseen edge cases.
     subset = sorted(_packaging_to_spack_version(v) for v in _subset_of_versions)
-    all_spack = sorted(_packaging_to_spack_version(v) for v in _all_versions)
+    all_versions = sorted(_packaging_to_spack_version(v) for v in _all_versions)
 
     # Find corresponding index
-    i, j = all_spack.index(subset[0]) + 1, 1
+    i, j = all_versions.index(subset[0]) + 1, 1
     new_versions: List[sv.ClosedOpenRange] = []
 
     # If the first when entry corresponds to the first known version, use (-inf, ..] as lowerbound.
     if i == 1:
         lo = sv.StandardVersion.typemin()
     else:
-        lo = _best_lowerbound(all_spack[i - 2], subset[0])
+        lo = _best_lowerbound(all_versions[i - 2], subset[0])
 
     while j < len(subset):
-        if all_spack[i] != subset[j]:
-            hi = _best_upperbound(subset[j - 1], all_spack[i])
+        if all_versions[i] != subset[j]:
+            hi = _best_upperbound(subset[j - 1], all_versions[i])
             new_versions.append(sv.VersionRange(lo, hi))
-            i = all_spack.index(subset[j])
-            lo = _best_lowerbound(all_spack[i - 1], subset[j])
+            i = all_versions.index(subset[j])
+            lo = _best_lowerbound(all_versions[i - 1], subset[j])
         i += 1
         j += 1
 
     # Similarly, if the last entry corresponds to the last known version,
     # assume the dependency continues to be used: [x, inf).
-    if i == len(all_spack):
+    if i == len(all_versions):
         hi = sv.StandardVersion.typemax()
     else:
-        hi = _best_upperbound(subset[j - 1], all_spack[i])
+        hi = _best_upperbound(subset[j - 1], all_versions[i])
 
     new_versions.append(sv.VersionRange(lo, hi))
 
@@ -258,6 +275,8 @@ def _condensed_version_list(
 def _pkg_specifier_set_to_version_list(
     pkg: str, specifier_set: specifiers.SpecifierSet, version_lookup: JsonVersionsLookup
 ) -> sv.VersionList:
+    """Convert the specifier set for a given package to an equivalent list of version ranges in spack."""
+    # TODO: improve how & where the caching is done?
     key = (pkg, specifier_set)
     if key in evalled:
         return evalled[key]
@@ -311,11 +330,17 @@ def _simplify_python_constraint(versions: sv.VersionList) -> None:
 def _eval_constraint(
     node: tuple, version_lookup: JsonVersionsLookup
 ) -> Union[None, bool, List[spec.Spec]]:
+    """Evaluate a environment marker (variable, operator, value).
+    
+    Returns:
+        None: If constraint cannot be evaluated.
+        True/False: If constraint is statically true or false.
+        List of specs: Spack representation of the constraint(s).
+    """
     # TODO: os_name, platform_machine, platform_release, platform_version, implementation_version
 
     # Operator
     variable, op, value = node
-    assert isinstance(op, markers.Op), "op not instance of Op"
 
     # Flip the comparison if the value is on the left-hand side.
     if isinstance(variable, markers.Value) and isinstance(value, markers.Variable):
@@ -333,20 +358,10 @@ def _eval_constraint(
             return None
         variable, op, value = value, markers.Op(flipped_op), variable
 
-    assert isinstance(variable, markers.Variable), "variable not instance of Variable"
-    assert isinstance(value, markers.Value), "value not instance of Value"
-
     print(f"EVAL MARKER {variable.value} {op.value} '{value.value}'")
 
     # Statically evaluate implementation name, since all we support is cpython
-    if variable.value == "implementation_name":
-        if op.value == "==":
-            return value.value == "cpython"
-        elif op.value == "!=":
-            return value.value != "cpython"
-        return None
-
-    if variable.value == "platform_python_implementation":
+    if variable.value == "implementation_name" or variable.value == "platform_python_implementation":
         if op.value == "==":
             return value.value.lower() == "cpython"
         elif op.value == "!=":
@@ -355,34 +370,25 @@ def _eval_constraint(
 
     platforms = ("linux", "cray", "darwin", "windows", "freebsd")
 
-    if variable.value == "platform_system" and op.value in ("==", "!="):
-        platform = value.value.lower()
-        if platform in platforms:
-            return [
-                spec.Spec(f"platform={p}")
-                for p in platforms
-                if p != platform
-                and op.value == "!="
-                or p == platform
-                and op.value == "=="
-            ]
-        return op.value == "!="  # we don't support it, so statically true/false.
-
-    if variable.value == "sys_platform" and op.value in ("==", "!="):
+    if (variable.value == "platform_system" or variable.value == "sys_platform") and op.value in ("==", "!="):
         platform = value.value.lower()
         if platform == "win32":
             platform = "windows"
         elif platform == "linux2":
             platform = "linux"
+
         if platform in platforms:
             return [
                 spec.Spec(f"platform={p}")
                 for p in platforms
-                if p != platform
-                and op.value == "!="
-                or p == platform
-                and op.value == "=="
+                if (p != platform
+                and op.value == "!=")
+                or (p == platform
+                and op.value == "==")
             ]
+        # TODO: NOTE: in the case of != above, this will return a list of [platform=windows, platform=linux, ...] => this means it is an OR of the list... 
+        # is this always the case? handled correctly?
+
         return op.value == "!="  # we don't support it, so statically true/false.
 
     try:
@@ -551,7 +557,13 @@ def _format_dependency(
     s = f'depends_on("{str(dependency_spec)}"'
 
     if when_spec is not None and when_spec != spec.Spec():
-        s += f', when="{str(when_spec)}"'
+        if when_spec.architecture:
+            platform_str = f"platform={when_spec.platform}"
+            when_spec.architecture = None 
+        else:
+            platform_str = ""
+        when_str = f"{platform_str} {str(when_spec)}".strip()
+        s += f', when="{when_str}"'
 
     if dep_types is not None:
         typestr = '", "'.join(dep_types)
@@ -613,11 +625,13 @@ def _pkg_to_spack_name(name: str) -> str:
 
 def _convert_requirement(
     r: requirements.Requirement, from_extra: Optional[str] = None
-) -> Tuple[spec.Spec, spec.Spec] | None:
+) -> List[Tuple[spec.Spec, spec.Spec]]:
     """Convert a packaging Requirement to its Spack equivalent.
 
-    The Spack requirement consists of a main dependency Spec and "when" Spec
-    for conditions like variants or markers.
+    Each Spack requirement consists of a main dependency Spec and "when" Spec
+    for conditions like variants or markers. It can happen that one requirement 
+    is converted into a list of multiple Spack requirements, which all need to 
+    be added.
 
     Parameters:
         r: packaging requirement
@@ -625,44 +639,34 @@ def _convert_requirement(
         extra of the main package, supply the extra's name here.
 
     Returns:
-        A tuple of (main_dependency_spec, when_spec).
+        A list of tuples of (main_dependency_spec, when_spec).
     """
 
     spack_name = _pkg_to_spack_name(r.name)
 
     requirement_spec = spec.Spec(spack_name)
 
-    when_spec = spec.Spec()
-    if from_extra is not None:
-        when_spec.constrain(spec.Spec(f"+{from_extra}"))
-
+    # by default contains just an empty when_spec
+    when_spec_list = [spec.Spec()]
     if r.marker is not None:
-
+        # TODO: make sure we're evaluating and handling markers correctly
+        # harmens code returns a list of specs for  marker => represents OR of specs
+        # for each spec, add the requirement individually
         marker_eval = _evaluate_marker(r.marker, lookup)
 
         print("Marker eval:", str(marker_eval))
 
         if marker_eval is False:
             print("Marker is statically false, skip this requirement.")
-            return None
+            return []
 
         elif marker_eval is True:
             print("Marker is statically true, don't need to include in when_spec.")
 
         else:
-
             if isinstance(marker_eval, list):
-
-                print("Marker specs:")
-                # TODO: constrain when spec with all marker specs?
-                for mspec in marker_eval:
-                    when_spec.constrain(mspec)
-                    print(mspec)
-
-                print("when_spec after marker specs:")
-                print(when_spec)
-            else:
-                print("Could not handle marker_eval.", file=sys.stderr)
+                # replace empty when spec with marker specs
+                when_spec_list = marker_eval
 
     if r.extras is not None:
         for extra in r.extras:
@@ -670,9 +674,22 @@ def _convert_requirement(
 
     if r.specifier is not None:
         vlist = _pkg_specifier_set_to_version_list(r.name, r.specifier, lookup)
+        
+        # TODO: how to handle the case when version list is empty, i.e. no matching versions found?
+        if not vlist:
+            req_string = str(r)
+            if from_extra:
+                req_string += " from extra '" + from_extra + "'"
+            raise ValueError(f"Could not resolve dependency {req_string}: No matching versions for '{r.name}' found!")
+
         requirement_spec.versions = vlist
 
-    return (requirement_spec, when_spec)
+    if from_extra is not None:
+        # further constrain when_specs with extra 
+        for when_spec in when_spec_list:
+            when_spec.constrain(spec.Spec(f"+{from_extra}"))
+
+    return [(requirement_spec, when_spec) for when_spec in when_spec_list]
 
 
 # TODO: replace with spack mod_to_class?
@@ -686,6 +703,7 @@ def _name_to_class_name(name: str) -> str:
         classname += w.capitalize()
 
     return classname
+
 
 
 class PyProject:
@@ -703,7 +721,7 @@ class PyProject:
         self.build_requires: List[requirements.Requirement] = []
         self.metadata: Optional[py_metadata.StandardMetadata] = None
         self.dynamic: List[str] = []
-        self.version: Optional[str] = None
+        self.version: Optional[pv.Version] = None
         self.description: Optional[str] = None
         self.readme: Optional[str] = None
         self.requires_python: Optional[specifiers.SpecifierSet] = None
@@ -745,8 +763,7 @@ class PyProject:
         pyproject = PyProject()
 
         # TODO: parse build system
-        # if backend is poetry things are a bit different
-        # flit older versions also different
+        # if backend is poetry things are a bit different (dependencies)
 
         # parse pyproject metadata
         # this handles all the specified fields in the [project] table of pyproject.toml
@@ -792,8 +809,8 @@ class PyProject:
         # we should know the version number a-priori. In this case it should be passed as a string argument to
         # the "from_toml(..)" method.
         if version:
-            pyproject.version = version
-        if pyproject.version is None or pyproject.version == "":
+            pyproject.version = _acceptable_version(version)
+        if pyproject.version is None:
             if pyproject.dynamic is not None and "version" in pyproject.dynamic:
                 # TODO: get version dynamically?
                 print(
@@ -873,6 +890,11 @@ class PyProject:
                 f"Error when querying json API. status code : {r.status_code}",
                 file=sys.stderr,
             )
+            if r.status_code == 404:
+                print(
+                    f"Package {self.name} not found on PyPI...",
+                    file=sys.stderr,
+                )
             return None
 
         files = r.json()["files"]
@@ -907,32 +929,32 @@ class PyProject:
         file = matching_files[0]
         sha256 = file["hashes"]["sha256"]
 
-        # TODO: need to convert packaging to spack version here
-        # TODO: in which cases do the versions differ?
-        spackpkg.versions.append((self.version, sha256))
+        if self.version is not None:
+            spack_version = _packaging_to_spack_version(self.version)
+            spackpkg.versions.append((spack_version, sha256))
 
         for r in self.build_requires:
-            specs = _convert_requirement(r)
-            if specs is not None:
+            spec_list = _convert_requirement(r)
+            for specs in spec_list:
                 spackpkg.build_dependencies.append(specs)
 
         for r in self.dependencies:
-            specs = _convert_requirement(r)
-            if specs is not None:
+            spec_list = _convert_requirement(r)
+            for specs in spec_list:
                 spackpkg.runtime_dependencies.append(specs)
 
         for extra, deps in self.optional_dependencies.items():
             spackpkg.variants.append(extra)
             for r in deps:
-                specs = _convert_requirement(r, from_extra=extra)
-                if specs is not None:
+                spec_list = _convert_requirement(r, from_extra=extra)
+                for specs in spec_list:
                     spackpkg.variant_dependencies.append(specs)
 
         if self.requires_python is not None:
             r = requirements.Requirement("python")
             r.specifier = self.requires_python
-            specs = _convert_requirement(r)
-            if specs is not None:
+            spec_list = _convert_requirement(r)
+            for specs in spec_list:
                 spackpkg.python_dependencies.append(specs)
 
         if self.authors is not None:
@@ -1003,7 +1025,7 @@ class SpackPyPkg:
         self.pypi_name: str = ""
         self.description: Optional[str] = None
         self.pypi: str = ""
-        self.versions: list = []
+        self.versions: List[Tuple[sv.Version, str]] = []
         self.build_dependencies: List[Tuple[spec.Spec, spec.Spec]] = []
         self.runtime_dependencies: List[Tuple[spec.Spec, spec.Spec]] = []
         self.variant_dependencies: List[Tuple[spec.Spec, spec.Spec]] = []
@@ -1074,7 +1096,7 @@ class SpackPyPkg:
             print("", file=outfile)
 
         for v, sha256 in self.versions:
-            print(f'    version("{v}", sha256="{sha256}")', file=outfile)
+            print(f'    version("{str(v)}", sha256="{sha256}")', file=outfile)
 
         print("", file=outfile)
 
