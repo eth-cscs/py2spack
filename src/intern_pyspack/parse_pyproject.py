@@ -1,24 +1,22 @@
-"""Module for parsing pyproject.toml files and converting them to Spack package.py files.
-"""
+"""Module for parsing pyproject.toml files and converting them to Spack package.py files."""
 
-from typing import Optional, List, Dict, Tuple, Union
-
-import sys
 import re
-import requests
-from packaging import requirements
-from packaging import specifiers
-from packaging import markers
-import packaging.version as pv
-import tomli  # type: ignore
-import pyproject_metadata as py_metadata  # type: ignore , pylint: disable=import-error,
-from spack import spec  # type: ignore , pylint: disable=import-error
-import spack.parser  # type: ignore , pylint: disable=import-error
-import spack.error  # type: ignore , pylint: disable=import-error
-import spack.version as sv  # type: ignore , pylint: disable=import-error
+import sys
+from typing import Dict, List, Optional, Tuple, Union
 
+import packaging.version as pv  # type: ignore
+import pyproject_metadata as py_metadata  # type: ignore
+import requests  # type: ignore
+import spack.error  # type: ignore
+import spack.parser  # type: ignore
+import spack.version as sv  # type: ignore
+import tomli
+from packaging import markers, requirements, specifiers
+from spack import spec
 
 TEST_PKG_PREFIX = "test-"
+
+
 USE_TEST_PREFIX = True
 
 USE_SPACK_PREFIX = True
@@ -53,7 +51,7 @@ KNOWN_PYTHON_VERSIONS = (
     (4, 0, 0),
 )
 
-evalled = dict()
+evalled: Dict = dict()
 
 
 def _normalized_name(name: str) -> str:
@@ -176,7 +174,7 @@ def _best_lowerbound(
 def _packaging_to_spack_version(v: pv.Version) -> sv.StandardVersion:
     # TODO: better epoch support.
     release = []
-    prerelease = (sv.common.FINAL,)
+    prerelease = [sv.common.FINAL]
     if v.epoch > 0:
         print(f"warning: epoch {v} isn't really supported", file=sys.stderr)
         release.append(v.epoch)
@@ -186,11 +184,11 @@ def _packaging_to_spack_version(v: pv.Version) -> sv.StandardVersion:
     if v.pre is not None:
         tp, num = v.pre
         if tp == "a":
-            prerelease = (sv.common.ALPHA, num)
+            prerelease = [sv.common.ALPHA, num]
         elif tp == "b":
-            prerelease = (sv.common.BETA, num)
+            prerelease = [sv.common.BETA, num]
         elif tp == "rc":
-            prerelease = (sv.common.RC, num)
+            prerelease = [sv.common.RC, num]
         separators.extend(("-", ""))
 
         if v.post or v.dev or v.local:
@@ -331,7 +329,7 @@ def _eval_constraint(
     node: tuple, version_lookup: JsonVersionsLookup
 ) -> Union[None, bool, List[spec.Spec]]:
     """Evaluate a environment marker (variable, operator, value).
-    
+
     Returns:
         None: If constraint cannot be evaluated.
         True/False: If constraint is statically true or false.
@@ -361,7 +359,10 @@ def _eval_constraint(
     print(f"EVAL MARKER {variable.value} {op.value} '{value.value}'")
 
     # Statically evaluate implementation name, since all we support is cpython
-    if variable.value == "implementation_name" or variable.value == "platform_python_implementation":
+    if (
+        variable.value == "implementation_name"
+        or variable.value == "platform_python_implementation"
+    ):
         if op.value == "==":
             return value.value.lower() == "cpython"
         elif op.value == "!=":
@@ -370,7 +371,9 @@ def _eval_constraint(
 
     platforms = ("linux", "cray", "darwin", "windows", "freebsd")
 
-    if (variable.value == "platform_system" or variable.value == "sys_platform") and op.value in ("==", "!="):
+    if (
+        variable.value == "platform_system" or variable.value == "sys_platform"
+    ) and op.value in ("==", "!="):
         platform = value.value.lower()
         if platform == "win32":
             platform = "windows"
@@ -381,12 +384,10 @@ def _eval_constraint(
             return [
                 spec.Spec(f"platform={p}")
                 for p in platforms
-                if (p != platform
-                and op.value == "!=")
-                or (p == platform
-                and op.value == "==")
+                if (p != platform and op.value == "!=")
+                or (p == platform and op.value == "==")
             ]
-        # TODO: NOTE: in the case of != above, this will return a list of [platform=windows, platform=linux, ...] => this means it is an OR of the list... 
+        # TODO: NOTE: in the case of != above, this will return a list of [platform=windows, platform=linux, ...] => this means it is an OR of the list...
         # is this always the case? handled correctly?
 
         return op.value == "!="  # we don't support it, so statically true/false.
@@ -429,7 +430,6 @@ def _eval_constraint(
 def _eval_node(
     node, version_lookup: JsonVersionsLookup
 ) -> Union[None, bool, List[spec.Spec]]:
-
     if isinstance(node, tuple):
         return _eval_constraint(node, version_lookup)
     return _do_evaluate_marker(node, version_lookup)
@@ -439,9 +439,9 @@ def _intersection(lhs: List[spec.Spec], rhs: List[spec.Spec]) -> List[spec.Spec]
     """Expand: (a or b) and (c or d) = (a and c) or (a and d) or (b and c) or (b and d)
     where `and` is spec intersection."""
     specs: List[spec.Spec] = []
-    for l in lhs:
+    for expr in lhs:
         for r in rhs:
-            intersection = l.copy()
+            intersection = expr.copy()
             try:
                 intersection.constrain(r)
             except spack.error.UnsatisfiableSpecError:
@@ -456,8 +456,8 @@ def _union(lhs: List[spec.Spec], rhs: List[spec.Spec]) -> List[spec.Spec]:
     in case the rhs only expresses constraints on versions."""
     if len(rhs) == 1 and not rhs[0].variants and not rhs[0].architecture:
         python, *_ = rhs[0].dependencies("python")
-        for l in lhs:
-            l.versions.add(python.versions)
+        for expr in lhs:
+            expr.versions.add(python.versions)
         return lhs
 
     return list(set(lhs + rhs))
@@ -559,7 +559,7 @@ def _format_dependency(
     if when_spec is not None and when_spec != spec.Spec():
         if when_spec.architecture:
             platform_str = f"platform={when_spec.platform}"
-            when_spec.architecture = None 
+            when_spec.architecture = None
         else:
             platform_str = ""
         when_str = f"{platform_str} {str(when_spec)}".strip()
@@ -594,16 +594,16 @@ def _get_archive_extension(filename: str) -> "str | None":
         ".bz2",
     ]
 
-    l = [ext for ext in archive_formats if filename.endswith(ext)]
+    extension_list = [ext for ext in archive_formats if filename.endswith(ext)]
 
-    if len(l) == 0:
+    if len(extension_list) == 0:
         print(f"No extension recognized for: {filename}!", file=sys.stderr)
         return None
 
-    if len(l) == 1:
-        return l[0]
+    if len(extension_list) == 1:
+        return extension_list[0]
 
-    longest_matching_ext = max(l, key=len)
+    longest_matching_ext = max(extension_list, key=len)
     return longest_matching_ext
 
 
@@ -629,8 +629,8 @@ def _convert_requirement(
     """Convert a packaging Requirement to its Spack equivalent.
 
     Each Spack requirement consists of a main dependency Spec and "when" Spec
-    for conditions like variants or markers. It can happen that one requirement 
-    is converted into a list of multiple Spack requirements, which all need to 
+    for conditions like variants or markers. It can happen that one requirement
+    is converted into a list of multiple Spack requirements, which all need to
     be added.
 
     Parameters:
@@ -674,18 +674,20 @@ def _convert_requirement(
 
     if r.specifier is not None:
         vlist = _pkg_specifier_set_to_version_list(r.name, r.specifier, lookup)
-        
+
         # TODO: how to handle the case when version list is empty, i.e. no matching versions found?
         if not vlist:
             req_string = str(r)
             if from_extra:
                 req_string += " from extra '" + from_extra + "'"
-            raise ValueError(f"Could not resolve dependency {req_string}: No matching versions for '{r.name}' found!")
+            raise ValueError(
+                f"Could not resolve dependency {req_string}: No matching versions for '{r.name}' found!"
+            )
 
         requirement_spec.versions = vlist
 
     if from_extra is not None:
-        # further constrain when_specs with extra 
+        # further constrain when_specs with extra
         for when_spec in when_spec_list:
             when_spec.constrain(spec.Spec(f"+{from_extra}"))
 
@@ -703,7 +705,6 @@ def _name_to_class_name(name: str) -> str:
         classname += w.capitalize()
 
     return classname
-
 
 
 class PyProject:
@@ -911,7 +912,7 @@ class PyProject:
         spackpkg.archive_extension = _get_archive_extension(non_wheels[-1]["filename"])
         if spackpkg.archive_extension is None:
             print(
-                f"No archive file extension recognized!",
+                "No archive file extension recognized!",
                 file=sys.stderr,
             )
             return None
@@ -963,11 +964,11 @@ class PyProject:
                     spackpkg.authors.append([elem])
                 elif isinstance(elem, dict):
                     if set(elem.keys()).issubset(set(["name", "email"])):
-                        l = []
+                        author = []
                         for key in ["name", "email"]:
                             if key in elem.keys():
-                                l.append(elem[key])
-                        spackpkg.authors.append(l)
+                                author.append(elem[key])
+                        spackpkg.authors.append(author)
                     else:
                         print(
                             f"Expected author dict to contain keys 'name' or 'email': {elem}",
@@ -987,11 +988,11 @@ class PyProject:
                     spackpkg.maintainers.append([elem])
                 elif isinstance(elem, dict):
                     if set(elem.keys()).issubset(set(["name", "email"])):
-                        l = []
+                        maintainer = []
                         for key in ["name", "email"]:
                             if key in elem.keys():
-                                l.append(elem[key])
-                        spackpkg.maintainers.append(l)
+                                maintainer.append(elem[key])
+                        spackpkg.maintainers.append(maintainer)
                     else:
                         print(
                             f"Expected maintainer dict to contain keys 'name' or 'email': {elem}",
