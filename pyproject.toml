@@ -1,0 +1,15 @@
+[build-system]
+requires = ["flit_core >=3.2,<4"]
+build-backend = "flit_core.buildapi"
+
+[project]
+name = "py2spack"
+authors = [{name = "davhofer", email = "davhofer@ethz.ch"}]
+readme = "README.md"
+license = {text = "MIT"}
+classifiers = ["License :: OSI Approved :: MIT License"]
+dynamic = ["version", "description"]
+dependencies = ["requests", "pyproject_metadata"]
+
+[project.urls]
+Home = "https://github.com/davhofer/py2spack/"
