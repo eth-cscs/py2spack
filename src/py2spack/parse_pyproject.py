@@ -97,7 +97,7 @@ def _get_archive_extension(filename: str) -> "str | None":
 
 def _pkg_to_spack_name(name: str) -> str:
     """Convert PyPI package name to Spack python package name."""
-    spack_name = external._normalized_name(name)
+    spack_name = external.normalized_name(name)
     if USE_SPACK_PREFIX and spack_name != "python":
         # in general, if the package name already contains the "py-" prefix, we don't want to add it again
         # exception: 3 existing packages on spack with double "py-" prefix
@@ -140,7 +140,7 @@ def _convert_requirement(
         # TODO: make sure we're evaluating and handling markers correctly
         # harmens code returns a list of specs for  marker => represents OR of specs
         # for each spec, add the requirement individually
-        marker_eval = external._evaluate_marker(r.marker, lookup)
+        marker_eval = external.evaluate_marker(r.marker, lookup)
 
         print("Marker eval:", str(marker_eval))
 
@@ -161,7 +161,7 @@ def _convert_requirement(
             requirement_spec.constrain(spec.Spec(f"+{extra}"))
 
     if r.specifier is not None:
-        vlist = external._pkg_specifier_set_to_version_list(r.name, r.specifier, lookup)
+        vlist = external.pkg_specifier_set_to_version_list(r.name, r.specifier, lookup)
 
         # TODO: how to handle the case when version list is empty, i.e. no matching versions found?
         if not vlist:
@@ -289,7 +289,7 @@ class PyProject:
             setattr(pyproject, attr, getattr(pyproject.metadata, attr, None))
 
         # normalize the name
-        pyproject.name = external._normalized_name(pyproject.name)
+        pyproject.name = external.normalized_name(pyproject.name)
 
         pyproject.tool = toml_data.get("tool", {})
 
@@ -298,7 +298,7 @@ class PyProject:
         # we should know the version number a-priori. In this case it should be passed as a string argument to
         # the "from_toml(..)" method.
         if version:
-            pyproject.version = external._acceptable_version(version)
+            pyproject.version = external.acceptable_version(version)
         if pyproject.version is None:
             if pyproject.dynamic is not None and "version" in pyproject.dynamic:
                 # TODO: get version dynamically?
@@ -419,7 +419,7 @@ class PyProject:
         sha256 = file["hashes"]["sha256"]
 
         if self.version is not None:
-            spack_version = external._packaging_to_spack_version(self.version)
+            spack_version = external.packaging_to_spack_version(self.version)
             spackpkg.versions.append((spack_version, sha256))
 
         for r in self.build_requires:

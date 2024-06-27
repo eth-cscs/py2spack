@@ -45,11 +45,11 @@ KNOWN_PYTHON_VERSIONS = (
 evalled: Dict = dict()
 
 
-def _normalized_name(name: str) -> str:
+def normalized_name(name: str) -> str:
     return re.sub(NAME_REGEX, "-", name).lower()
 
 
-def _acceptable_version(version: str) -> Optional[pv.Version]:
+def acceptable_version(version: str) -> Optional[pv.Version]:
     """Try to parse version string using packaging."""
     try:
         v = pv.parse(version)
@@ -90,7 +90,7 @@ class JsonVersionsLookup:
             return []
         versions = r.json()["versions"]
         # parse and sort versions
-        return sorted({vv for v in versions if (vv := _acceptable_version(v))})
+        return sorted({vv for v in versions if (vv := acceptable_version(v))})
 
     def _python_versions(self) -> List[pv.Version]:
         """Statically evaluate python versions."""
@@ -162,7 +162,7 @@ def _best_lowerbound(
         return curr.up_to(i + 1)
 
 
-def _packaging_to_spack_version(v: pv.Version) -> sv.StandardVersion:
+def packaging_to_spack_version(v: pv.Version) -> sv.StandardVersion:
     # TODO: better epoch support.
     release = []
     prerelease = [sv.common.FINAL]
@@ -225,8 +225,8 @@ def _condensed_version_list(
     """Create a minimal, condensed list of version ranges equivalent to the given subset of all versions."""
     # Sort in Spack's order, which should in principle coincide with packaging's order, but may
     # not in unforseen edge cases.
-    subset = sorted(_packaging_to_spack_version(v) for v in _subset_of_versions)
-    all_versions = sorted(_packaging_to_spack_version(v) for v in _all_versions)
+    subset = sorted(packaging_to_spack_version(v) for v in _subset_of_versions)
+    all_versions = sorted(packaging_to_spack_version(v) for v in _all_versions)
 
     # Find corresponding index
     i, j = all_versions.index(subset[0]) + 1, 1
@@ -261,7 +261,7 @@ def _condensed_version_list(
     return vlist
 
 
-def _pkg_specifier_set_to_version_list(
+def pkg_specifier_set_to_version_list(
     pkg: str, specifier_set: specifiers.SpecifierSet, version_lookup: JsonVersionsLookup
 ) -> sv.VersionList:
     """Convert the specifier set for a given package to an equivalent list of version ranges in spack."""
@@ -296,7 +296,7 @@ def _eval_python_version_marker(
         print(f"could not parse `{op}{value}` as specifier", file=sys.stderr)
         return None
 
-    return _pkg_specifier_set_to_version_list("python", specifier, version_lookup)
+    return pkg_specifier_set_to_version_list("python", specifier, version_lookup)
 
 
 def _simplify_python_constraint(versions: sv.VersionList) -> None:
@@ -510,7 +510,7 @@ def _do_evaluate_marker(
     return lhs
 
 
-def _evaluate_marker(
+def evaluate_marker(
     m: markers.Marker, version_lookup: JsonVersionsLookup
 ) -> Union[bool, None, List[spec.Spec]]:
     """Evaluate the marker expression tree either (1) as a list of specs that constitute the when
