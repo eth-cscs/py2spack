@@ -219,7 +219,7 @@ def packaging_to_spack_version(v: pv.Version) -> sv.StandardVersion:
     return spack_version
 
 
-def _condensed_version_list(
+def condensed_version_list(
     _subset_of_versions: List[pv.Version], _all_versions: List[pv.Version]
 ) -> sv.VersionList:
     """Create a minimal, condensed list of version ranges equivalent to the given subset of all versions."""
@@ -274,7 +274,7 @@ def pkg_specifier_set_to_version_list(
     result = (
         sv.VersionList()
         if not matching
-        else _condensed_version_list(matching, all_versions)
+        else condensed_version_list(matching, all_versions)
     )
     evalled[key] = result
     return result
@@ -347,7 +347,7 @@ def _eval_constraint(
             return None
         variable, op, value = value, markers.Op(flipped_op), variable
 
-    print(f"EVAL MARKER {variable.value} {op.value} '{value.value}'")
+    # print(f"EVAL MARKER {variable.value} {op.value} '{value.value}'")
 
     # Statically evaluate implementation name, since all we support is cpython
     if (
