@@ -1,4 +1,4 @@
-"""Utilities for converting python packaging requirements and markers to Spack dependency specs.
+"""Utilities for converting python packaging requirements to Spack dependency specs.
 
 The code is adapted from Spack/Harmen Stoppels: https://github.com/spack/pypi-to-spack-package.
 """
@@ -7,10 +7,11 @@ The code is adapted from Spack/Harmen Stoppels: https://github.com/spack/pypi-to
 # TODO: document/comment this code
 # TODO: check if everything works as expected
 
-# these python versions are not supported anymore, so we shouldn't need to consider them
+# these python versions are not supported anymore, so we shouldn't need to
+# consider them
 import re
 import sys
-from typing import Dict, List, Optional, Union
+from typing import Dict, List, Optional, Union, Any
 
 import packaging.version as pv  # type: ignore
 import requests  # type: ignore
@@ -46,6 +47,7 @@ evalled: Dict = dict()
 
 
 def normalized_name(name: str) -> str:
+    """Replaces '-', '_', and '.' with '-'."""
     return re.sub(NAME_REGEX, "-", name).lower()
 
 
@@ -68,6 +70,7 @@ class JsonVersionsLookup:
     """
 
     def __init__(self):
+        """Initialize empty JsonVersionsLookup."""
         self.cache: Dict[str, List[pv.Version]] = {}
 
     def _query(self, name: str) -> List[pv.Version]:
@@ -100,6 +103,10 @@ class JsonVersionsLookup:
         ]
 
     def __getitem__(self, name: str) -> List[pv.Version]:
+        """Query cache or API for given package name.
+
+        'python' is evaluated statically.
+        """
         result = self.cache.get(name)
         if result is not None:
             return result
@@ -114,25 +121,24 @@ class JsonVersionsLookup:
 def _best_upperbound(
     curr: sv.StandardVersion, nxt: sv.StandardVersion
 ) -> sv.StandardVersion:
-    """Return the most general upper bound that includes curr but not nxt. Invariant is that
-    curr < nxt.
+    """Return the most general upper bound that includes curr but not nxt.
 
-    Here, "most general" means the differentiation should happen as high as possible in the version specifier hierarchy.
-    3.4.2.5,  3.4.5.1 -> 3.4.3 or 3.4.4, not 3.4.2.6
+    Invariant is that curr < nxt. Here, "most general" means the differentiation should
+    happen as high as possible in the version specifier hierarchy.
     """
     assert curr < nxt
     i = 0
     m = min(len(curr), len(nxt))
-    # find the first level in the version specifier hierarchy where the two versions differ
+    # find the first level in the version specifier hierarchy where the two
+    # versions differ
     while i < m and curr.version[0][i] == nxt.version[0][i]:
         i += 1
 
     if i == len(curr) < len(nxt):
         # e.g. curr = 3.4, nxt = 3.4.5, i = 2
         release, _ = curr.version
-        release += (
-            0,
-        )  # one zero should be enough 1.2 and 1.2.0 are not distinct in packaging.
+        # one zero should be enough 1.2 and 1.2.0 are not distinct in packaging.
+        release += (0,)
         seperators = (".",) * (len(release) - 1) + ("",)
         as_str = ".".join(str(x) for x in release)
         return sv.StandardVersion(
@@ -147,10 +153,9 @@ def _best_upperbound(
 def _best_lowerbound(
     prev: sv.StandardVersion, curr: sv.StandardVersion
 ) -> sv.StandardVersion:
-    """Return the most general lower bound that includes curr but not prev. Invarint is that
-    prev < curr.
+    """Return the most general lower bound that includes curr but not prev.
 
-    Counterpart to _best_upperbound()
+    Invarint is that prev < curr. Counterpart to _best_upperbound()
     """
     i = 0
     m = min(len(curr), len(prev))
@@ -163,6 +168,7 @@ def _best_lowerbound(
 
 
 def packaging_to_spack_version(v: pv.Version) -> sv.StandardVersion:
+    """Convert packaging version to equivalent spack version."""
     # TODO: better epoch support.
     release = []
     prerelease = [sv.common.FINAL]
@@ -183,7 +189,10 @@ def packaging_to_spack_version(v: pv.Version) -> sv.StandardVersion:
         separators.extend(("-", ""))
 
         if v.post or v.dev or v.local:
-            print(f"warning: ignoring post / dev / local version {v}", file=sys.stderr)
+            print(
+                f"warning: ignoring post / dev / local version {v}",
+                file=sys.stderr,
+            )
 
     else:
         if v.post is not None:
@@ -222,9 +231,9 @@ def packaging_to_spack_version(v: pv.Version) -> sv.StandardVersion:
 def condensed_version_list(
     _subset_of_versions: List[pv.Version], _all_versions: List[pv.Version]
 ) -> sv.VersionList:
-    """Create a minimal, condensed list of version ranges equivalent to the given subset of all versions."""
-    # Sort in Spack's order, which should in principle coincide with packaging's order, but may
-    # not in unforseen edge cases.
+    """Create a condensed list of version ranges equivalent to a version subset."""
+    # Sort in Spack's order, which should in principle coincide with
+    # packaging's order, but may not in unforseen edge cases.
     subset = sorted(packaging_to_spack_version(v) for v in _subset_of_versions)
     all_versions = sorted(packaging_to_spack_version(v) for v in _all_versions)
 
@@ -232,7 +241,8 @@ def condensed_version_list(
     i, j = all_versions.index(subset[0]) + 1, 1
     new_versions: List[sv.ClosedOpenRange] = []
 
-    # If the first when entry corresponds to the first known version, use (-inf, ..] as lowerbound.
+    # If the first when entry corresponds to the first known version, use
+    # (-inf, ..] as lowerbound.
     if i == 1:
         lo = sv.StandardVersion.typemin()
     else:
@@ -262,9 +272,11 @@ def condensed_version_list(
 
 
 def pkg_specifier_set_to_version_list(
-    pkg: str, specifier_set: specifiers.SpecifierSet, version_lookup: JsonVersionsLookup
+    pkg: str,
+    specifier_set: specifiers.SpecifierSet,
+    version_lookup: JsonVersionsLookup,
 ) -> sv.VersionList:
-    """Convert the specifier set for a given package to an equivalent list of version ranges in spack."""
+    """Convert the specifier set to an equivalent list of version ranges."""
     # TODO: improve how & where the caching is done?
     key = (pkg, specifier_set)
     if key in evalled:
@@ -283,10 +295,11 @@ def pkg_specifier_set_to_version_list(
 def _eval_python_version_marker(
     variable: str, op: str, value: str, version_lookup: JsonVersionsLookup
 ) -> Optional[sv.VersionList]:
-    # TODO: there might be still some bug caused by python_version vs python_full_version
-    # differences.
-    # Also `in` and `not in` are allowed, but difficult to get right. They take the rhs as a
-    # string and do string matching instead of version parsing... so we don't support them now.
+    # TODO: there might be still some bug caused by python_version vs
+    # python_full_version differences.
+    # Also `in` and `not in` are allowed, but difficult to get right. They take
+    # the rhs as a string and do string matching instead of version parsing...
+    # so we don't support them now.
     if op not in ("==", ">", ">=", "<", "<=", "!="):
         return None
 
@@ -300,8 +313,11 @@ def _eval_python_version_marker(
 
 
 def _simplify_python_constraint(versions: sv.VersionList) -> None:
-    """Modifies a version list of python versions in place to remove redundant constraints
-    implied by UNSUPPORTED_PYTHON."""
+    """Modifies a version list to remove redundant constraints.
+
+    These redundant constraints are implied by UNSUPPORTED_PYTHON. Version list is
+    modified in place.
+    """
     # First delete everything implied by UNSUPPORTED_PYTHON
     vs = versions.versions
     while vs and vs[0].satisfies(UNSUPPORTED_PYTHON):
@@ -310,7 +326,8 @@ def _simplify_python_constraint(versions: sv.VersionList) -> None:
     if not vs:
         return
 
-    # Remove any redundant lowerbound, e.g. @3.7:3.9 becomes @:3.9 if @:3.6 unsupported.
+    # Remove any redundant lowerbound, e.g. @3.7:3.9 becomes @:3.9 if @:3.6
+    # unsupported.
     union = UNSUPPORTED_PYTHON._union_if_not_disjoint(vs[0])
     if union:
         vs[0] = union
@@ -326,7 +343,8 @@ def _eval_constraint(
         True/False: If constraint is statically true or false.
         List of specs: Spack representation of the constraint(s).
     """
-    # TODO: os_name, platform_machine, platform_release, platform_version, implementation_version
+    # TODO: os_name, platform_machine, platform_release, platform_version,
+    # implementation_version
 
     # Operator
     variable, op, value = node
@@ -355,9 +373,9 @@ def _eval_constraint(
         or variable.value == "platform_python_implementation"
     ):
         if op.value == "==":
-            return value.value.lower() == "cpython"
+            return bool(value.value.lower() == "cpython")
         elif op.value == "!=":
-            return value.value.lower() != "cpython"
+            return bool(value.value.lower() != "cpython")
         return None
 
     platforms = ("linux", "cray", "darwin", "windows", "freebsd")
@@ -378,11 +396,12 @@ def _eval_constraint(
                 if (p != platform and op.value == "!=")
                 or (p == platform and op.value == "==")
             ]
-        # TODO: NOTE: in the case of != above, this will return a list of [platform=windows, platform=linux, ...] => this means it is an OR of the list...
-        # is this always the case? handled correctly?
+        # TODO: NOTE: in the case of != above, this will return a list of
+        # [platform=windows, platform=linux, ...] => this means it is an OR of
+        # the list... is this always the case? handled correctly?
 
-        return op.value == "!="  # we don't support it, so statically true/false.
-
+        # we don't support it, so statically true/false.
+        return bool(op.value == "!=")
     try:
         if variable.value == "extra":
             if op.value == "==":
@@ -427,8 +446,11 @@ def _eval_node(
 
 
 def _intersection(lhs: List[spec.Spec], rhs: List[spec.Spec]) -> List[spec.Spec]:
-    """Expand: (a or b) and (c or d) = (a and c) or (a and d) or (b and c) or (b and d)
-    where `and` is spec intersection."""
+    """Compute intersection of spec lists.
+
+    Expand: (a or b) and (c or d) = (a and c) or (a and d) or (b and c) or
+    (b and d) where `and` is spec intersection.
+    """
     specs: List[spec.Spec] = []
     for expr in lhs:
         for r in rhs:
@@ -443,8 +465,11 @@ def _intersection(lhs: List[spec.Spec], rhs: List[spec.Spec]) -> List[spec.Spec]
 
 
 def _union(lhs: List[spec.Spec], rhs: List[spec.Spec]) -> List[spec.Spec]:
-    """This case is trivial: (a or b) or (c or d) = a or b or c or d, BUT do a simplification
-    in case the rhs only expresses constraints on versions."""
+    """Compute union of spec lists.
+
+    This case is trivial: (a or b) or (c or d) = a or b or c or d, BUT do a
+    simplification in case the rhs only expresses constraints on versions.
+    """
     if len(rhs) == 1 and not rhs[0].variants and not rhs[0].architecture:
         python, *_ = rhs[0].dependencies("python")
         for expr in lhs:
@@ -479,8 +504,11 @@ def _eval_and(group: List, version_lookup):
 def _do_evaluate_marker(
     node: list, version_lookup: JsonVersionsLookup
 ) -> Union[None, bool, List[spec.Spec]]:
-    """A marker is an expression tree, that we can sometimes translate to the Spack DSL."""
+    """Recursively try to evaluate a node (in the marker expression tree).
 
+    A marker is an expression tree, that we can sometimes translate to the
+    Spack DSL.
+    """
     assert isinstance(node, list) and len(node) > 0, "node assert fails"
 
     # Inner array is "and", outer array is "or".
@@ -492,9 +520,9 @@ def _do_evaluate_marker(
         elif op == "and":
             groups[-1].append(node[i])
         else:
-            assert False, f"unexpected operator {op}"
+            raise ValueError(f"unexpected operator {op}")
 
-    lhs = _eval_and(groups[0], version_lookup)
+    lhs: "bool | List[Any] | None" = _eval_and(groups[0], version_lookup)
     if lhs is True:
         return True
     for group in groups[1:]:
@@ -506,14 +534,17 @@ def _do_evaluate_marker(
         elif lhs is False:
             lhs = rhs
         elif rhs is not False:
-            lhs = _union(lhs, rhs)
+            lhs = _union(lhs, rhs)  # type: ignore
     return lhs
 
 
 def evaluate_marker(
     m: markers.Marker, version_lookup: JsonVersionsLookup
 ) -> Union[bool, None, List[spec.Spec]]:
-    """Evaluate the marker expression tree either (1) as a list of specs that constitute the when
-    conditions, (2) statically as True or False given that we only support cpython, (3) None if
-    we can't translate it into Spack DSL."""
+    """Evaluate a marker.
+
+    Evaluate the marker expression tree either (1) as a list of specs that constitute
+    the when conditions, (2) statically as True or False given that we only support
+    cpython, (3) None if we can't translate it into Spack DSL.
+    """
     return _do_evaluate_marker(m._markers, version_lookup)

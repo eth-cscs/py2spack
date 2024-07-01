@@ -1,4 +1,4 @@
-"""Module for parsing pyproject.toml files and converting them to Spack package.py files."""
+"""Module for parsing pyproject.toml files and converting them to a Spack package.py."""
 
 import sys
 from typing import Dict, List, Optional, Tuple, Union, Set
@@ -41,7 +41,6 @@ def _format_dependency(
     Returns:
         Formatted "depends_on(...)" statement for package.py.
     """
-
     s = f'depends_on("{str(dependency_spec)}"'
 
     if when_spec is not None and when_spec != spec.Spec():
@@ -96,13 +95,14 @@ def _get_archive_extension(filename: str) -> "str | None":
 
 
 # TODO: do we have to/can we further verify validity of these names?
-# can we check whether a package already exists on spack? if we have the correct name? etc.
+# can we check whether a package already exists on spack? if we have the correct name?
 def _pkg_to_spack_name(name: str) -> str:
     """Convert PyPI package name to Spack python package name."""
     spack_name = external.normalized_name(name)
     if USE_SPACK_PREFIX and spack_name != "python":
-        # in general, if the package name already contains the "py-" prefix, we don't want to add it again
-        # exception: 3 existing packages on spack with double "py-" prefix
+        # in general, if the package name already contains the "py-" prefix, we
+        # don't want to add it again. exception: 3 existing packages on spack
+        # with double "py-" prefix
         if not spack_name.startswith("py-") or spack_name in [
             "py-cpuinfo",
             "py-tes",
@@ -131,7 +131,6 @@ def _convert_requirement(
     Returns:
         A list of tuples of (main_dependency_spec, when_spec).
     """
-
     spack_name = _pkg_to_spack_name(r.name)
 
     requirement_spec = spec.Spec(spack_name)
@@ -155,9 +154,11 @@ def _convert_requirement(
                 # replace empty when spec with marker specs
                 when_spec_list = marker_eval
 
-        # if marker_eval is True, then the marker is statically true, we don't need to include it
+        # if marker_eval is True, then the marker is statically true, we don't
+        # need to include it
 
-    # these are the extras passed to the dependency itself; not the extras of the main package for which this requirement is necessary
+    # these are the extras passed to the dependency itself; not the extras of
+    # the main package for which this requirement is necessary
     if r.extras is not None:
         for extra in r.extras:
             requirement_spec.constrain(spec.Spec(f"+{extra}"))
@@ -165,13 +166,15 @@ def _convert_requirement(
     if r.specifier is not None:
         vlist = external.pkg_specifier_set_to_version_list(r.name, r.specifier, lookup)
 
-        # TODO: how to handle the case when version list is empty, i.e. no matching versions found?
+        # TODO: how to handle the case when version list is empty, i.e. no matching
+        # versions found?
         if not vlist:
             req_string = str(r)
             if from_extra:
                 req_string += " from extra '" + from_extra + "'"
             raise ValueError(
-                f"Could not resolve dependency {req_string}: No matching versions for '{r.name}' found!"
+                f"Could not resolve dependency {req_string}: No matching versions for"
+                + f" '{r.name}' found!"
             )
 
         requirement_spec.versions = vlist
@@ -204,9 +207,14 @@ def _to_pypi_sdist_filename(pkg_name: str, version: str, extension: str):
 def _check_dependency_satisfiability(
     dependency_list: List[Tuple[spec.Spec, spec.Spec, str]],
 ) -> bool:
-    """Checks whether a list of Spack dependency requirements contains any conflicts and is thus not satisfiable.
+    """Checks a list of Spack dependencies for conflicts.
 
-    The list consists of triplets (dependency spec, when spec, type string). A conflict arises if two dependencies specifying the same dependency package name have non-intersecting dependency specs but intersecting when specs. In other words, for a given package dependency (i.e. one specific name) and all requirements involving that dependency, we want that "when_spec_1.intersects(when_spec_2) => dep_spec1.intersects(dep_spec_2)".
+    The list consists of triplets (dependency spec, when spec, type string). A conflict
+    arises if two dependencies specifying the same dependency package name have non-
+    intersecting dependency specs but intersecting when specs. In other words, for a
+    given package dependency (i.e. one specific name) and all requirements involving
+    that dependency, we want that "when_spec_1.intersects(when_spec_2) =>
+    dep_spec1.intersects(dep_spec_2)".
     """
     sat: bool = True
 
@@ -226,7 +234,9 @@ def _check_dependency_satisfiability(
                 if when1.intersects(when2) and (not dep1.intersects(dep2)):
                     sat = False
                     print(
-                        f"ERROR: uncompatible requirements for dependency '{name}'!\nRequirement 1: {str(dep1)}; when-spec: {str(when1)}\nRequirement 2: {str(dep2)}; when-spec: {str(when2)}",
+                        f"ERROR: uncompatible requirements for dependency '{name}'!\n",
+                        f"Requirement 1: {str(dep1)}; when-spec: {str(when1)}\n",
+                        f"Requirement 2: {str(dep2)}; when-spec: {str(when2)}",
                         file=sys.stderr,
                     )
     return sat
@@ -235,13 +245,19 @@ def _check_dependency_satisfiability(
 def _get_pypi_filenames_hashes(
     pypi_name: str, versions: List[pv.Version]
 ) -> Optional[Tuple[str, List[Tuple[sv.Version, str]]]]:
-    """Query the JSON API to obtain PyPI location and format, as well as filenames and hashes for all given versions.
+    """Query the JSON API for file information.
+
+    The result includes PyPI base location, file format, as well as filenames
+    and hashes for all given versions.
 
     Returns:
-        pypi_base: a string with the pypi name and sdist filename template for the package.
+        pypi_base: a string with the pypi name and sdist filename template for the
+        package.
         spack_versions: a list of (spack version, sha256 hash) for requested versions.
     """
-    # TODO: since we're doing lookups in the API in multiple places (using JsonVersionsLookup, here, potentially earlier to download tomls...) -> combine/unify these lookups in single class
+    # TODO: since we're doing lookups in the API in multiple places (using
+    # JsonVersionsLookup, here, potentially earlier to download tomls...) ->
+    # combine/unify these lookups in single class
     # TODO: later move pypi/all_files stuff to get_metadata()?
 
     r = requests.get(
@@ -268,7 +284,8 @@ def _get_pypi_filenames_hashes(
     non_wheels = list(filter(lambda f: not f["filename"].endswith(".whl"), files))
     if len(non_wheels) == 0:
         print(
-            "No source distributions found, only wheels!\nWheel file parsing not supported yet...",
+            "No source distributions found, only wheels!",
+            "\nWheel file parsing not supported yet...",
             file=sys.stderr,
         )
         return None
@@ -299,9 +316,11 @@ def _get_pypi_filenames_hashes(
         matching_files = list(filter(lambda f: f["filename"] == filename, non_wheels))
 
         if len(matching_files) != 1:
-            # TODO: abort or skip? we skip here but it's still included later, for the depenencies...
+            # TODO: abort or skip? we skip here but it's still included later,
+            # for the depenencies...
             print(
-                f"No sdist for version {str(version)} found on pypi, skipping this version.",
+                f"No sdist for version {str(version)} found on pypi,",
+                "skipping this version.",
                 file=sys.stderr,
             )
             continue
@@ -319,13 +338,14 @@ def _get_pypi_filenames_hashes(
 
 
 class PyProject:
-    """
-    A class to represent a pyproject.toml file. Contains all fields which are
-    present in METADATA, plus additional ones only found in pyproject.toml.
-    E.g. build-backend, build dependencies
+    """A class to represent a pyproject.toml file.
+
+    Contains all fields which are present in METADATA, plus additional ones only found
+    in pyproject.toml. E.g. build-backend, build dependencies.
     """
 
     def __init__(self):
+        """Initialize empty PyProject."""
         self.name: str = ""
 
         self.tool: Dict = dict()
@@ -351,12 +371,11 @@ class PyProject:
 
     @staticmethod
     def from_toml(path: str, version: str = "") -> "PyProject | None":
-        """
-        Create a PyProject instance from a pyproject.toml file.
+        """Create a PyProject instance from a pyproject.toml file.
 
-        The version corresponding to the pyproject.toml file should be known a-priori and
-        should be passed here as a string argument. Alternatively, it can be read from the
-        pyproject.toml file if it is specified explicitly there.
+        The version corresponding to the pyproject.toml file should be known a-priori
+        and should be passed here as a string argument. Alternatively, it can be read
+        from the pyproject.toml file if it is specified explicitly there.
 
         Parameters:
             path: The path to the toml file.
@@ -416,10 +435,11 @@ class PyProject:
 
         pyproject.tool = toml_data.get("tool", {})
 
-        # TODO: handling the version, make sure we have the version of the current project
-        # NOTE: in general, since we have downloaded and are parsing the pyproject.toml of a specific version,
-        # we should know the version number a-priori. In this case it should be passed as a string argument to
-        # the "from_toml(..)" method.
+        # TODO: handling the version, make sure we have the version of the current
+        # project
+        # NOTE: in general, since we have downloaded and are parsing the pyproject.toml
+        # of a specific version, we should know the version number a-priori. In this
+        # case it should be passed as a string argument to the "from_toml(..)" method.
         if version:
             pyproject.version = external.acceptable_version(version)
         if pyproject.version is None:
@@ -436,7 +456,8 @@ class PyProject:
 
         # TODO: build-backend-specific parsing of tool and other tables,
         # e.g. for additional dependencies
-        # for example poetry could use "tool.poetry.dependencies" to specify dependencies
+        # for example poetry could use "tool.poetry.dependencies" to specify
+        # dependencies
 
         if (
             pyproject.license is None
@@ -449,12 +470,14 @@ class PyProject:
                 license_classifiers = list(
                     filter(lambda x: x.startswith("License"), pyproject.classifiers)
                 )
-                # for each license classifier, split by "::" and take the last substring (and strip unnecessary whitespace)
+                # for each license classifier, split by "::" and take the last substring
+                # (and strip unnecessary whitespace)
                 licenses = list(
                     map(lambda x: x.split("::")[-1].strip(), license_classifiers)
                 )
                 if len(licenses) > 0:
-                    # TODO: can we decide purely from classifiers whether AND or OR? AND is more restrictive => be safe
+                    # TODO: can we decide purely from classifiers whether AND or OR?
+                    # AND is more restrictive => be safe
                     license_txt = " AND ".join(licenses)
                     pyproject.license = py_metadata.License(text=license_txt, file=None)
 
@@ -462,13 +485,16 @@ class PyProject:
         if pyproject.license is not None:
             if pyproject.license.text is not None and len(pyproject.license.text) > 200:
                 print(
-                    "License text appears to be full license content instead of license identifier. Please double check and add license identifier manually to package.py file.",
+                    "License text appears to be full license content instead of",
+                    "license identifier. Please double check and add license",
+                    "identifier manually to package.py file.",
                     file=sys.stderr,
                 )
                 pyproject.license = None
             elif pyproject.license.text is None and pyproject.license.file is not None:
                 print(
-                    "License is supplied as a file. This is not supported, please add license identifier manually to package.py file.",
+                    "License is supplied as a file. This is not supported, please add",
+                    "license identifier manually to package.py file.",
                     file=sys.stderr,
                 )
 
@@ -478,11 +504,12 @@ class PyProject:
 class SpackPyPkg:
     """Class representing a Spack PythonPackage object.
 
-    Instances are created directly from PyProject objects, by converting PyProject fields and
-    semantics to their Spack equivalents (where possible).
+    Instances are created directly from PyProject objects, by converting PyProject
+    fields and semantics to their Spack equivalents (where possible).
     """
 
     def __init__(self):
+        """Initialize empty SpackPyPkg."""
         self.name: str = ""
         self.pypi_name: str = ""
         self.description: Optional[str] = None
@@ -519,14 +546,16 @@ class SpackPyPkg:
                         self.authors.append(author)
                     else:
                         print(
-                            f"Expected author dict to contain keys 'name' or 'email': {elem}",
+                            "Expected author dict to contain keys 'name' or 'email':",
+                            str(elem),
                             file=sys.stderr,
                         )
                 elif isinstance(elem, tuple) or isinstance(elem, list):
                     self.authors.append(list(elem))
                 else:
                     print(
-                        f"Expected authors to be either string or dict elements: {elem}",
+                        "Expected authors to be either string or dict elements:",
+                        str(elem),
                         file=sys.stderr,
                     )
 
@@ -543,14 +572,16 @@ class SpackPyPkg:
                         self.maintainers.append(maintainer)
                     else:
                         print(
-                            f"Expected maintainer dict to contain keys 'name' or 'email': {elem}",
+                            "Maintainer dict should contain keys 'name' or 'email':",
+                            str(elem),
                             file=sys.stderr,
                         )
                 elif isinstance(elem, tuple) or isinstance(elem, list):
                     self.maintainers.append(list(elem))
                 else:
                     print(
-                        f"Expected maintainer to be either string or dict elements: {elem}",
+                        "Expected maintainer to be either string or dict elements:",
+                        str(elem),
                         file=sys.stderr,
                     )
 
@@ -565,7 +596,9 @@ class SpackPyPkg:
     ) -> "SpackPyPkg | None":
         """Takes PyProject objects and converts them to a single SpackPyPkg.
 
-        Metadata is extracted from the most recent PyProject version. Dependencies are collected for all versions and combined."""
+        Metadata is extracted from the most recent PyProject version. Dependencies are
+        collected for all versions and combined.
+        """
         if isinstance(pyprojects, list) and len(pyprojects) == 0:
             print("Received an empty list.", file=sys.stderr)
             return None
@@ -577,15 +610,13 @@ class SpackPyPkg:
 
         # get the base pkg name
         name = pyproject_list[0].name
-        if name is None:
-            print("Attribute 'name' of PyProject must not be None.", file=sys.stderr)
-            return None
 
         # check that all have a version and the same package name
         for pyproject in pyproject_list:
             if pyproject.name != name or pyproject.version is None:
                 print(
-                    "All PyProject objects must have the same name and a specified version.",
+                    "All PyProject objects must have the same name and a specified",
+                    "version.",
                     file=sys.stderr,
                 )
                 return None
@@ -598,11 +629,13 @@ class SpackPyPkg:
         spackpkg = SpackPyPkg()
 
         # use the newest version to parse the metadata
-        # TODO: some fields should be parsed and combined from all versions, e.g. license
+        # TODO: some fields should be parsed and combined from all versions, e.g.
+        # license
         most_recent = sorted_pyprojects[-1]
         spackpkg._get_metadata(most_recent)
 
-        # load PyPI location for the spack package as well as a list of available versions and hashes for the given pyprojects
+        # load PyPI location for the spack package as well as a list of available
+        # versions and hashes for the given pyprojects
         res = _get_pypi_filenames_hashes(name, pyproject_versions)
 
         if res is None:
@@ -621,11 +654,14 @@ class SpackPyPkg:
         spackpkg.all_versions = lookup[spackpkg.pypi_name]
 
         # Conversion and simplification of dependencies summarized:
-        # Collect unique dependencies (dependency spec, when spec) together with a list of versions for which this dependency is required.
+        # Collect unique dependencies (dependency spec, when spec) together with a list
+        # of versions for which this dependency is required.
         # Condense the version list and add it to the when spec.
-        # For each pair of dependencies (for the same package), make sure that there are no conflicts/unsatisfiable requirements.
+        # For each pair of dependencies (for the same package), make sure that there are
+        # no conflicts/unsatisfiable requirements.
 
-        # map each unique dependency (dependency spec, when spec) to a list of package versions that have this dependency
+        # map each unique dependency (dependency spec, when spec) to a list of package
+        # versions that have this dependency
         specs_to_versions: Dict[Tuple[spec.Spec, spec.Spec], List[pv.Version]] = {}
 
         # map dependencies to their dependency types (build, run, test, ...)
@@ -702,16 +738,16 @@ class SpackPyPkg:
                     specs_to_types[specs].add("run")
 
         # now we have a list of versions for each requirement
-        # convert versions to an equivalent condensed version list, and add this list to the when spec
-        # from there, build a complete list with all dependencies
+        # convert versions to an equivalent condensed version list, and add this list to
+        # the when spec. from there, build a complete list with all dependencies
 
         final_dependency_list: List[Tuple[spec.Spec, spec.Spec, str]] = []
 
         for (dep_spec, when_spec), vlist in specs_to_versions.items():
             types = specs_to_types[dep_spec, when_spec]
 
-            # convert the set of types to a string as it would be displayed in the package.py,
-            # e.g. '("build", "run")'.
+            # convert the set of types to a string as it would be displayed in the
+            # package.py, e.g. '("build", "run")'.
             canonical_typestring = str(tuple(sorted(list(types)))).replace("'", '"')
 
             versions_condensed = external.condensed_version_list(
@@ -725,7 +761,8 @@ class SpackPyPkg:
 
         if not satisfiable:
             print(
-                f"Cannot convert package '{spackpkg.pypi_name}' due to uncompatible requirements.",
+                f"Cannot convert package '{spackpkg.pypi_name}' due to uncompatible",
+                "requirements.",
                 file=sys.stderr,
             )
             return None
@@ -742,8 +779,8 @@ class SpackPyPkg:
     def print_package(self, outfile=sys.stdout):
         """Format and write the package to 'outfile'.
 
-        By default outfile=sys.stdout. The package can be written directly to a package.py file
-        by supplying the corresponding file object.
+        By default outfile=sys.stdout. The package can be written directly to a
+        package.py file by supplying the corresponding file object.
         """
         print("Outputting package.py...\n")
 
