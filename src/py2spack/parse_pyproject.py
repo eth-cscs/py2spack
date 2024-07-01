@@ -3,10 +3,10 @@
 import sys
 from typing import Dict, List, Optional, Tuple, Union, Set
 
-import packaging.version as pv  # type: ignore
-import pyproject_metadata as py_metadata  # type: ignore
+import packaging.version as pv
+import pyproject_metadata as py_metadata
 import requests  # type: ignore
-import spack.version as sv  # type: ignore
+import spack.version as sv
 import tomli
 from packaging import requirements, specifiers
 from spack import spec
