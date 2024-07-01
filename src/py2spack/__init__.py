@@ -1,5 +1,4 @@
-"""
-py2spack package
+"""py2spack package.
 
 This package allows converting standard python packages to Spack packages.
 """
