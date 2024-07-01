@@ -69,3 +69,12 @@ warn_unused_configs = true
 ignore_missing_imports = true
 check_untyped_defs = true
 warn_unreachable = true 
+
+[tool.pytest.ini_options]
+minversion = "6.0"
+addopts = "-ra -q"
+testpaths = [
+    "tests",
+    "integration",
+]
+
