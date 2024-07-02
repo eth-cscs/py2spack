@@ -9,7 +9,15 @@ readme = "README.md"
 license = {text = "MIT"}
 classifiers = ["License :: OSI Approved :: MIT License"]
 dynamic = ["version", "description"]
-dependencies = ["requests", "pyproject_metadata"]
+dependencies = [
+    "packaging>=20", 
+    "requests>=2.30", 
+    "pyproject-metadata>=0.7", 
+    "tomli>=1.2",
+    # Spack dependencies:
+    "ruamel.yaml>=0.17.22", 
+    "archspec>=0.2", 
+]
 
 [project.urls]
 Home = "https://github.com/davhofer/py2spack/"
@@ -57,10 +65,7 @@ ignore = []
 convention = "google"
 
 [tool.ruff.format]
-quote-style = "single"
-indent-style = "space"
 skip-magic-trailing-commas = false 
-line-ending = "auto"
 
 
 [tool.mypy]
