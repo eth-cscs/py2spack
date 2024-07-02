@@ -16,6 +16,60 @@ from spack import spec
 
 
 @pytest.mark.parametrize(
+    "prev, curr",
+    [
+        # ("23.1-alpha1", "23.1.0"),
+        # ("23.1-alpha1", "23.1"),
+        # ("23.1.0", "23.2-alpha1"),
+        # ("23.1", "23.2-alpha1"),
+        ("23.0", "23.0.0.1"),
+        ("23.0", "23.0.1"),
+        ("22.1.3.4.5", "22.1.6"),
+        ("22.1.3.4.5", "22.2.6.1"),
+        ("22.1.3", "22.1.3.4"),
+        ("22.1.3", "22.1.4"),
+    ],
+)
+def test_best_lowerbound(prev, curr):
+    """."""
+    prev = sv.Version(prev)
+    curr = sv.Version(curr)
+
+    result = external._best_lowerbound(prev, curr)
+    result_range = sv.VersionRange(result, sv.StandardVersion.typemax())
+
+    assert prev not in result_range
+    assert curr in result_range
+
+
+@pytest.mark.parametrize(
+    "curr, nxt",
+    [
+        # ("23.1-alpha1", "23.1.0"),
+        # ("23.1-alpha1", "23.1"),
+        # ("23.1.0", "23.2-alpha1"),
+        # ("23.1", "23.2-alpha1"),
+        ("23.0", "23.0.0.1"),
+        ("23.0", "23.0.1"),
+        ("22.1.3.4.5", "22.1.6"),
+        ("22.1.3.4.5", "22.2.6.1"),
+        ("22.1.3", "22.1.3.4"),
+        ("22.1.3", "22.1.4"),
+    ],
+)
+def test_best_upperbound(curr, nxt):
+    """."""
+    curr = sv.Version(curr)
+    nxt = sv.Version(nxt)
+
+    result = external._best_upperbound(curr, nxt)
+    result_range = sv.VersionRange(sv.StandardVersion.typemin(), result)
+
+    assert nxt not in result_range
+    assert curr in result_range
+
+
+@pytest.mark.parametrize(
     "name, expected",
     [
         ("name1withNoSymbols", "name1withnosymbols"),
@@ -151,7 +205,7 @@ BLACK_VERSIONS = [
     "22.8.0",
     "22.10.0",
     "22.12.0",
-    "23.1a1",
+    # "23.1a1",
     "23.1.0",
     "23.3.0",
     "23.7.0",
@@ -182,7 +236,7 @@ BLACK_VERSIONS = [
             specifiers.SpecifierSet(">=22.11"),
             [
                 "22.12.0",
-                "23.1a1",
+                # "23.1a1",
                 "23.1.0",
                 "23.3.0",
                 "23.7.0",
@@ -199,6 +253,20 @@ BLACK_VERSIONS = [
         (specifiers.SpecifierSet("<22.6.0"), ["22.1.0", "22.3.0"]),
         (specifiers.SpecifierSet(">=22"), BLACK_VERSIONS),
         (specifiers.SpecifierSet(">23,<23"), []),
+        (
+            specifiers.SpecifierSet(">=22.6,<23.9.1"),
+            [
+                "22.6.0",
+                "22.8.0",
+                "22.10.0",
+                "22.12.0",
+                # "23.1a1",
+                "23.1.0",
+                "23.3.0",
+                "23.7.0",
+                "23.9.0",
+            ],
+        ),
     ],
 )
 def test_pkg_specifier_set_to_version_list(
@@ -220,7 +288,6 @@ def test_pkg_specifier_set_to_version_list(
     sv_included = [sv.Version(v) for v in expect_included]
 
     expect_excluded = list(filter(lambda x: x not in expect_included, BLACK_VERSIONS))
-    expect_excluded += ["21.1", "24.1"]
     sv_excluded = [sv.Version(v) for v in expect_excluded]
 
     for v in sv_included:

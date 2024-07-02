@@ -135,10 +135,12 @@ def _best_upperbound(
         i += 1
 
     if i == len(curr) < len(nxt):
+        ldiff = len(nxt) - len(curr)
         # e.g. curr = 3.4, nxt = 3.4.5, i = 2
         release, _ = curr.version
-        # one zero should be enough 1.2 and 1.2.0 are not distinct in packaging.
-        release += (0,)
+        # need to add enough zeros to not include a sub-version by accident (e.g. when
+        # curr=2.0, nxt=2.0.0.1)
+        release += (0,) * ldiff
         seperators = (".",) * (len(release) - 1) + ("",)
         as_str = ".".join(str(x) for x in release)
         return sv.StandardVersion(
@@ -155,16 +157,54 @@ def _best_lowerbound(
 ) -> sv.StandardVersion:
     """Return the most general lower bound that includes curr but not prev.
 
-    Invarint is that prev < curr. Counterpart to _best_upperbound()
+    Invariant is that prev < curr. Counterpart to _best_upperbound().
+    Cases:
+        Same length:
+            There exists index i s.t. prev[i] < curr[i]. Find i,
+            take curr[:i+1] (including i).
+
+        Prev is longer:
+            Same as before.
+
+        Curr is longer:
+            Either ther exists index i s.t. prev[i] < curr[i],
+            or they have the same prefix, then take curr up to the first non-zero index
+            after.
+
+    Edge case:
+        prereleases, post, dev, local versions: NOT SUPPORTED!
+        Semantics of prereleases are tricky.
+        E.g. version 1.1-alpha1 is included in range :1.0, but not in range :1.0.0
     """
+    assert prev < curr
+
+    # check if prev is a prerelease of curr
+    if curr.version[0] == prev.version[0]:
+        return curr
+
     i = 0
     m = min(len(curr), len(prev))
-    while i < m and curr.version[0][i] == prev.version[0][i]:
+    while i < m:
+        if prev.version[0][i] < curr.version[0][i]:
+            return curr.up_to(i + 1)
         i += 1
-    if i + 1 >= len(curr):
+
+    # both have the same prefix and curr is longer (otherwise we would have found an
+    # index i where prev[i] < curr[i], according to invariant)
+    assert len(curr) > len(prev)
+
+    # according to invariant, there must be a non-zero value (otherwise the versions
+    # would be identical)
+    while i < len(curr) and curr.version[0][i] == 0:
+        i += 1
+
+    # necessary in order not to exclude relevant prerelease of curr
+    # e.g. if prev = 4.2, curr = 4.3-alpha1
+    # we want the bound to be 4.3-alpha1, not 4.3
+    if i >= len(curr):
         return curr
-    else:
-        return curr.up_to(i + 1)
+
+    return curr.up_to(i + 1)
 
 
 def packaging_to_spack_version(v: pv.Version) -> sv.StandardVersion:
@@ -228,14 +268,36 @@ def packaging_to_spack_version(v: pv.Version) -> sv.StandardVersion:
     return spack_version
 
 
+def _version_type_supported(version: pv.Version) -> bool:
+    return (
+        version.pre is None
+        and version.post is None
+        and version.dev is None
+        and version.local is None
+    )
+
+
 def condensed_version_list(
     _subset_of_versions: List[pv.Version], _all_versions: List[pv.Version]
 ) -> sv.VersionList:
     """Create a condensed list of version ranges equivalent to a version subset."""
+    # for now, don't support prereleases etc.
+    subset_filtered = list(filter(_version_type_supported, _subset_of_versions))
+    all_versions_filtered = list(filter(_version_type_supported, _all_versions))
+
+    if len(subset_filtered) < len(_subset_of_versions) or len(
+        all_versions_filtered
+    ) < len(_all_versions):
+        print(
+            "Prereleases as well as post, dev, and local versions are not supported",
+            "and will be excluded!",
+            file=sys.stderr,
+        )
+
     # Sort in Spack's order, which should in principle coincide with
     # packaging's order, but may not in unforseen edge cases.
-    subset = sorted(packaging_to_spack_version(v) for v in _subset_of_versions)
-    all_versions = sorted(packaging_to_spack_version(v) for v in _all_versions)
+    subset = sorted(packaging_to_spack_version(v) for v in subset_filtered)
+    all_versions = sorted(packaging_to_spack_version(v) for v in all_versions_filtered)
 
     # Find corresponding index
     i, j = all_versions.index(subset[0]) + 1, 1
