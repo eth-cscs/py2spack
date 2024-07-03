@@ -14,9 +14,6 @@ dependencies = [
     "requests>=2.30", 
     "pyproject-metadata>=0.7", 
     "tomli>=1.2",
-    # Spack dependencies:
-    "ruamel.yaml>=0.17.22", 
-    "archspec>=0.2", 
 ]
 
 [project.urls]
