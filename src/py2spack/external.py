@@ -46,11 +46,6 @@ KNOWN_PYTHON_VERSIONS = (
 evalled: Dict = dict()
 
 
-def normalized_name(name: str) -> str:
-    """Replaces '-', '_', and '.' with '-'."""
-    return re.sub(NAME_REGEX, "-", name).lower()
-
-
 def acceptable_version(version: str) -> Optional[pv.Version]:
     """Try to parse version string using packaging."""
     try:

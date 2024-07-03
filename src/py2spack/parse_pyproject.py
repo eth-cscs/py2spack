@@ -10,6 +10,7 @@ import spack.version as sv
 import tomli
 from packaging import requirements, specifiers
 from spack import spec
+from spack.util import naming
 
 from py2spack import external
 
@@ -67,7 +68,7 @@ def _get_archive_extension(filename: str) -> "str | None":
             "Supplied filename is a wheel file, please provide archive file!",
             file=sys.stderr,
         )
-        return ".whl"
+        return None
 
     archive_formats = [
         ".zip",
@@ -96,9 +97,10 @@ def _get_archive_extension(filename: str) -> "str | None":
 
 # TODO: do we have to/can we further verify validity of these names?
 # can we check whether a package already exists on spack? if we have the correct name?
+# ==> use naming.possible_spack_module_names !
 def _pkg_to_spack_name(name: str) -> str:
     """Convert PyPI package name to Spack python package name."""
-    spack_name = external.normalized_name(name)
+    spack_name: str = naming.simplify_name(name)
     if USE_SPACK_PREFIX and spack_name != "python":
         # in general, if the package name already contains the "py-" prefix, we
         # don't want to add it again. exception: 3 existing packages on spack
@@ -168,6 +170,7 @@ def _convert_requirement(
 
         # TODO: how to handle the case when version list is empty, i.e. no matching
         # versions found?
+        # TODO: return None instead?
         if not vlist:
             req_string = str(r)
             if from_extra:
@@ -185,19 +188,6 @@ def _convert_requirement(
             when_spec.constrain(spec.Spec(f"+{from_extra}"))
 
     return [(requirement_spec, when_spec) for when_spec in when_spec_list]
-
-
-# TODO: replace with spack mod_to_class?
-def _name_to_class_name(name: str) -> str:
-    """Convert a package name to a canonical class name for package.py."""
-    classname = ""
-    # in case there would be both - and _ in name
-    name = name.replace("_", "-")
-    name_arr = name.split("-")
-    for w in name_arr:
-        classname += w.capitalize()
-
-    return classname
 
 
 def _to_pypi_sdist_filename(pkg_name: str, version: str, extension: str):
@@ -258,7 +248,8 @@ def _get_pypi_filenames_hashes(
     # TODO: since we're doing lookups in the API in multiple places (using
     # JsonVersionsLookup, here, potentially earlier to download tomls...) ->
     # combine/unify these lookups in single class
-    # TODO: later move pypi/all_files stuff to get_metadata()?
+    # TODO: separate getting the data from API and extracting the relevant info for the
+    # versions
 
     r = requests.get(
         f"https://pypi.org/simple/{pypi_name}/",
@@ -431,7 +422,7 @@ class PyProject:
             setattr(pyproject, attr, getattr(pyproject.metadata, attr, None))
 
         # normalize the name
-        pyproject.name = external.normalized_name(pyproject.name)
+        pyproject.name = naming.simplify_name(pyproject.name)
 
         pyproject.tool = toml_data.get("tool", {})
 
@@ -796,7 +787,7 @@ class SpackPyPkg:
         print("from spack.package import *", file=outfile)
         print("", file=outfile)
 
-        print(f"class {_name_to_class_name(self.name)}(PythonPackage):", file=outfile)
+        print(f"class {naming.mod_to_class(self.name)}(PythonPackage):", file=outfile)
 
         if self.description is not None and len(self.description) > 0:
             print(f'    """{self.description}"""', file=outfile)
@@ -871,9 +862,13 @@ class SpackPyPkg:
 
 if __name__ == "__main__":
     pyprojects = []
-    for v in ["23.12.0", "23.12.1", "24.2.0", "24.4.0", "24.4.1", "24.4.2"]:
+    # for v in ["23.12.0", "23.12.1", "24.2.0", "24.4.0", "24.4.1", "24.4.2"]:
+    #    py_pkg = PyProject.from_toml(
+    #        f"example_pyprojects/black/pyproject{v}.toml", version=v
+    #    )
+    for v in ["4.66.1", "4.66.2", "4.66.3", "4.66.4"]:
         py_pkg = PyProject.from_toml(
-            f"example_pyprojects/black/pyproject{v}.toml", version=v
+            f"example_pyprojects/tqdm/pyproject{v}.toml", version=v
         )
 
         if py_pkg is None:
@@ -902,7 +897,7 @@ if __name__ == "__main__":
 
     # or print to file.
     # TODO: allow tool to create a folder for the package and store package.py there
-    # with open("package.py", "w+") as f:
-    #    spack_pkg.print_package(outfile=f)
+    with open("output/package.py", "w+") as f:
+        spack_pkg.print_package(outfile=f)
 
     # TODO: test new version with multiple pyprojects
