@@ -1,7 +1,7 @@
-"""Tests for parse_pyproject.py module."""
+"""Tests for main.py module."""
 
 import pytest
-from py2spack import parse_pyproject
+from py2spack import main
 
 from packaging import requirements
 from packaging import version as pv
@@ -27,7 +27,7 @@ from spack import version as sv
 )
 def test_get_archive_extension(filename, expected):
     """."""
-    assert parse_pyproject._get_archive_extension(filename) == expected
+    assert main._get_archive_extension(filename) == expected
 
 
 @pytest.mark.parametrize(
@@ -94,7 +94,7 @@ def test_get_archive_extension(filename, expected):
 )
 def test_convert_requirement(req, from_extra, expected):
     """."""
-    result = parse_pyproject._convert_requirement(req, from_extra=from_extra)
+    result = main._convert_requirement(req, from_extra=from_extra)
     assert set(result) == set(expected)
 
 
@@ -120,7 +120,7 @@ def test_get_pypi_filenames_hashes():
     expected_version_hashes = [(sv.Version(v), h) for v, h in version_hashes]
     expected_pypi = "black/black-24.3.0.tar.gz"
 
-    result_pypi, result_version_hashes = parse_pyproject._get_pypi_filenames_hashes(
+    result_pypi, result_version_hashes = main._get_pypi_filenames_hashes(
         "black", versions
     )
 
@@ -173,7 +173,7 @@ def test_get_pypi_filenames_hashes():
 )
 def test_check_dependency_satisfiability(dep_list, expected):
     """."""
-    assert parse_pyproject._check_dependency_satisfiability(dep_list) == expected
+    assert main._check_dependency_satisfiability(dep_list) == expected
 
 
 @pytest.mark.parametrize(
@@ -193,7 +193,7 @@ def test_check_dependency_satisfiability(dep_list, expected):
 )
 def test_format_dependency(dep_spec, when_spec, expected):
     """."""
-    assert parse_pyproject._format_dependency(dep_spec, when_spec) == expected
+    assert main._format_dependency(dep_spec, when_spec) == expected
 
 
 @pytest.mark.parametrize(
@@ -208,12 +208,12 @@ def test_format_dependency(dep_spec, when_spec, expected):
 )
 def test_pkg_to_spack_name(name, expected):
     """."""
-    assert parse_pyproject._pkg_to_spack_name(name) == expected
+    assert main._pkg_to_spack_name(name) == expected
 
 
 #  To test:
 """
-parse_pyproject.PyProject.from_toml
-parse_pyproject.SpackPyPkg._get_metadata
-parse_pyproject.SpackPyPkg.from_pyprojects
+main.PyProject.from_toml
+main.SpackPyPkg._get_metadata
+main.SpackPyPkg.from_pyprojects
 """

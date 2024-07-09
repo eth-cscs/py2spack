@@ -3,10 +3,6 @@
 The code is adapted from Spack/Harmen Stoppels: https://github.com/spack/pypi-to-spack-package.
 """
 
-
-# TODO: document/comment this code
-# TODO: check if everything works as expected
-
 # these python versions are not supported anymore, so we shouldn't need to
 # consider them
 import re

@@ -1,7 +1,7 @@
-"""Tests for external.py module."""
+"""Tests for conversion_tools.py module."""
 
 import pytest
-from py2spack import external
+from py2spack import conversion_tools
 
 from packaging import version as pv
 from packaging import specifiers
@@ -35,7 +35,7 @@ def test_best_lowerbound(prev, curr):
     prev = sv.Version(prev)
     curr = sv.Version(curr)
 
-    result = external._best_lowerbound(prev, curr)
+    result = conversion_tools._best_lowerbound(prev, curr)
     result_range = sv.VersionRange(result, sv.StandardVersion.typemax())
 
     assert prev not in result_range
@@ -62,23 +62,11 @@ def test_best_upperbound(curr, nxt):
     curr = sv.Version(curr)
     nxt = sv.Version(nxt)
 
-    result = external._best_upperbound(curr, nxt)
+    result = conversion_tools._best_upperbound(curr, nxt)
     result_range = sv.VersionRange(sv.StandardVersion.typemin(), result)
 
     assert nxt not in result_range
     assert curr in result_range
-
-
-@pytest.mark.parametrize(
-    "name, expected",
-    [
-        ("name1withNoSymbols", "name1withnosymbols"),
-        ("other.name-wiTh_Different.symbols", "other-name-with-different-symbols"),
-    ],
-)
-def test_normalized_name(name, expected):
-    """."""
-    assert external.normalized_name(name) == expected
 
 
 @pytest.mark.parametrize(
@@ -93,7 +81,7 @@ def test_normalized_name(name, expected):
 )
 def test_acceptable_version(version_str, expected):
     """."""
-    assert external.acceptable_version(version_str) == expected
+    assert conversion_tools.acceptable_version(version_str) == expected
 
 
 @pytest.mark.parametrize(
@@ -106,14 +94,14 @@ def test_acceptable_version(version_str, expected):
 )
 def test_packaging_to_spack_version(version, expected):
     """."""
-    assert external.packaging_to_spack_version(version) == expected
+    assert conversion_tools.packaging_to_spack_version(version) == expected
 
 
 def test_condensed_version_list_specific1():
     """."""
     subset = [pv.Version("2.0.1"), pv.Version("2.1.0")]
     all_versions = [pv.Version("2.0.1"), pv.Version("2.1.0"), pv.Version("2.0.5")]
-    result = external.condensed_version_list(subset, all_versions)
+    result = conversion_tools.condensed_version_list(subset, all_versions)
 
     assert sv.Version("2.0.5") not in result
     assert sv.Version("2.0.1") in result
@@ -130,7 +118,7 @@ def test_condensed_version_list_specific2():
     ]
     pv_subset = [pv.Version(v) for v in subset]
     pv_all_versions = [pv.Version(v) for v in all_versions]
-    result = external.condensed_version_list(pv_subset, pv_all_versions)
+    result = conversion_tools.condensed_version_list(pv_subset, pv_all_versions)
 
     for v in subset:
         v_spack = sv.Version(v)
@@ -152,7 +140,7 @@ def test_condensed_version_list_specific3():
     ]
     pv_subset = [pv.Version(v) for v in subset]
     pv_all_versions = [pv.Version(v) for v in all_versions]
-    result = external.condensed_version_list(pv_subset, pv_all_versions)
+    result = conversion_tools.condensed_version_list(pv_subset, pv_all_versions)
 
     for v in subset:
         v_spack = sv.Version(v)
@@ -186,7 +174,7 @@ def test_condensed_version_list():
     ]
     pv_subset = [pv.Version(v) for v in subset]
     pv_all_versions = [pv.Version(v) for v in all_versions]
-    result = external.condensed_version_list(pv_subset, pv_all_versions)
+    result = conversion_tools.condensed_version_list(pv_subset, pv_all_versions)
 
     for v in subset:
         v_spack = sv.Version(v)
@@ -278,12 +266,14 @@ def test_pkg_specifier_set_to_version_list(
     We use the package black, with versions limited to the range 22 <= v < 24 for
     reproducibility even when black adds versions.
     """
-    lookup = external.JsonVersionsLookup()
+    lookup = conversion_tools.JsonVersionsLookup()
 
     specifier_set &= specifiers.SpecifierSet(">=22")
     specifier_set &= specifiers.SpecifierSet("<24")
 
-    result = external.pkg_specifier_set_to_version_list("black", specifier_set, lookup)
+    result = conversion_tools.pkg_specifier_set_to_version_list(
+        "black", specifier_set, lookup
+    )
 
     sv_included = [sv.Version(v) for v in expect_included]
 
@@ -353,8 +343,8 @@ def test_pkg_specifier_set_to_version_list(
 )
 def test_evaluate_marker(marker, expected):
     """."""
-    lookup = external.JsonVersionsLookup()
-    result = external.evaluate_marker(marker, lookup)
+    lookup = conversion_tools.JsonVersionsLookup()
+    result = conversion_tools.evaluate_marker(marker, lookup)
 
     if isinstance(expected, list):
         assert isinstance(result, list)

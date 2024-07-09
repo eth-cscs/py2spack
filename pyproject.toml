@@ -12,7 +12,6 @@ dynamic = ["version", "description"]
 dependencies = [
     "packaging>=20", 
     "requests>=2.30", 
-    "pyproject-metadata>=0.7", 
     "tomli>=1.2",
 ]
 
