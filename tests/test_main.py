@@ -21,13 +21,23 @@ from spack import version as sv
         ("black-24.4.2.tar.gz", ".tar.gz"),
         ("package-1.gz", ".gz"),
         ("python-3.4.5-alpha6.tar.bz2", ".tar.bz2"),
-        ("pkg-0.0.1.txt", None),
-        ("pkg-0.0.1.whl", None),
     ],
 )
 def test_get_archive_extension(filename, expected):
     """."""
     assert main._get_archive_extension(filename) == expected
+
+
+@pytest.mark.parametrize(
+    "filename",
+    [
+        ("pkg-0.0.1.txt"),
+        ("pkg-0.0.1.whl"),
+    ],
+)
+def test_get_archive_extension_invalid(filename):
+    """."""
+    assert isinstance(main._get_archive_extension(filename), main.APIError)
 
 
 @pytest.mark.parametrize(
@@ -96,6 +106,12 @@ def test_convert_requirement(req, from_extra, expected):
     """."""
     result = main._convert_requirement(req, from_extra=from_extra)
     assert set(result) == set(expected)
+
+
+def test_convert_requirement_invalid():
+    """."""
+    result = main._convert_requirement(requirements.Requirement("black>=4.2,<4"))
+    assert isinstance(result, main.ConversionError)
 
 
 def test_get_pypi_filenames_hashes():

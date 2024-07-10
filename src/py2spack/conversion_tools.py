@@ -3,11 +3,9 @@
 The code is adapted from Spack/Harmen Stoppels: https://github.com/spack/pypi-to-spack-package.
 """
 
-# these python versions are not supported anymore, so we shouldn't need to
-# consider them
 import re
 import sys
-from typing import Dict, List, Optional, Union, Any
+from typing import Any, Dict, List, Optional, Union
 
 import packaging.version as pv  # type: ignore
 import requests  # type: ignore
@@ -17,7 +15,8 @@ import spack.version as sv  # type: ignore
 from packaging import markers, specifiers
 from spack import spec
 
-
+# these python versions are not supported anymore, so we shouldn't need to
+# consider them
 UNSUPPORTED_PYTHON = sv.VersionRange(
     sv.StandardVersion.typemin(), sv.StandardVersion.from_string("3.5")
 )
@@ -26,7 +25,6 @@ NAME_REGEX = re.compile(r"[-_.]+")
 
 LOCAL_SEPARATORS_REGEX = re.compile(r"[\._-]")
 
-# TODO: these are the only known python versions?
 KNOWN_PYTHON_VERSIONS = (
     (3, 6, 15),
     (3, 7, 17),

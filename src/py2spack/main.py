@@ -1,19 +1,17 @@
 """Module for parsing pyproject.toml files and converting them to a Spack package.py."""
 
 import sys
-from typing import Dict, List, Optional, Tuple, Set
+from typing import Dict, List, Optional, Set, Tuple
 
 import packaging.version as pv
 import requests  # type: ignore
 import spack.version as sv
 import tomli
-from packaging import requirements
-from packaging import specifiers
+from packaging import requirements, specifiers
 from spack import spec
 from spack.util import naming
 
-from py2spack import conversion_tools
-from py2spack import parsing
+from py2spack import conversion_tools, parsing
 
 TEST_PKG_PREFIX = "test-"
 
@@ -21,6 +19,74 @@ TEST_PKG_PREFIX = "test-"
 USE_TEST_PREFIX = True
 
 USE_SPACK_PREFIX = True
+
+
+class ConversionError(Exception):
+    """Error while converting a packaging requirement to spack."""
+
+    def __init__(
+        self,
+        msg: str,
+        *,
+        requirement: str | None = None,
+    ):
+        """Initialize error."""
+        super().__init__(msg)
+        self._requirement = requirement
+
+    @property
+    def requirement(self) -> str | None:  # pragma: no cover
+        """Get requirement."""
+        return self._requirement
+
+
+class ParseError(Exception):
+    """Error in parsing a pyproject.toml file.
+
+    This error is not recoverable from, it means that the pyproject.toml file
+    cannot be parsed or used at all (as opposed to a parsing.ConfigurationError,
+    which only affects some portion of the pyproject.toml parsing).
+    """
+
+    def __init__(
+        self,
+        msg: str,
+        *,
+        file: str | None = None,
+        pkg_name: str | None = None,
+        pkg_version: str | None = None,
+    ):
+        """Initialize error."""
+        super().__init__(msg)
+        self._file = file
+        self._pkg_name = pkg_name
+        self._pkg_version = pkg_version
+
+    @property
+    def file(self) -> str | None:  # pragma: no cover
+        """Get file."""
+        return self._file
+
+    @property
+    def pkg_name(self) -> str | None:  # pragma: no cover
+        """Get package name."""
+        return self._pkg_name
+
+    @property
+    def pkg_version(self) -> str | None:  # pragma: no cover
+        """Get package version."""
+        return self._pkg_version
+
+
+class APIError(Exception):
+    """Error during version lookup or querying of the PyPI JSON API."""
+
+    def __init__(
+        self,
+        msg: str,
+    ):
+        """Initialize error."""
+        super().__init__(msg)
 
 
 lookup = conversion_tools.JsonVersionsLookup()
@@ -63,14 +129,7 @@ def _format_dependency(
     return s
 
 
-def _get_archive_extension(filename: str) -> "str | None":
-    if filename.endswith(".whl"):
-        print(
-            "Supplied filename is a wheel file, please provide archive file!",
-            file=sys.stderr,
-        )
-        return None
-
+def _get_archive_extension(filename: str) -> "str | APIError":
     archive_formats = [
         ".zip",
         ".tar",
@@ -86,8 +145,10 @@ def _get_archive_extension(filename: str) -> "str | None":
     extension_list = [ext for ext in archive_formats if filename.endswith(ext)]
 
     if len(extension_list) == 0:
-        print(f"No extension recognized for: {filename}!", file=sys.stderr)
-        return None
+        # we return an API error here because the filenames are obtained through the API
+        # and the function is used during the API lookup process
+        msg = f"No extension recognized for: {filename}!"
+        return APIError(msg)
 
     if len(extension_list) == 1:
         return extension_list[0]
@@ -116,7 +177,7 @@ def _pkg_to_spack_name(name: str) -> str:
 
 def _convert_requirement(
     r: requirements.Requirement, from_extra: Optional[str] = None
-) -> List[Tuple[spec.Spec, spec.Spec]] | None:
+) -> List[Tuple[spec.Spec, spec.Spec]] | ConversionError:
     """Convert a packaging Requirement to its Spack equivalent.
 
     Each Spack requirement consists of a main dependency Spec and "when" Spec
@@ -141,7 +202,15 @@ def _convert_requirement(
     if r.marker is not None:
         # 'evaluate_marker' code returns a list of specs for  marker => represents OR of
         # specs
-        marker_eval = conversion_tools.evaluate_marker(r.marker, lookup)
+        try:
+            marker_eval = conversion_tools.evaluate_marker(r.marker, lookup)
+        except ValueError as e:
+            from_extra_str = "" if not from_extra else f" from extra {from_extra}"
+            msg = (
+                f"Unable to convert marker {r.marker} for dependency"
+                f" {r}{from_extra_str}: {e}"
+            )
+            return ConversionError(msg, requirement=str(r))
 
         if isinstance(marker_eval, bool) and marker_eval is False:
             # Marker is statically false, skip this requirement
@@ -169,17 +238,14 @@ def _convert_requirement(
             r.name, r.specifier, lookup
         )
 
-        # return None if no version satisfies the requirement
+        # return Error if no version satisfies the requirement
         if not vlist:
-            req_string = str(r)
-            if from_extra:
-                req_string += " from extra '" + from_extra + "'"
+            from_extra_str = "" if not from_extra else f" from extra {from_extra}"
             msg = (
-                f"Could not resolve dependency {req_string}: No matching versions for"
-                f" '{r.name}' found!"
+                f"Unable to convert dependency"
+                f" {r}{from_extra_str}: no matching versions"
             )
-            print(msg, file=sys.stderr)
-            return None
+            return ConversionError(msg, requirement=str(r))
 
         requirement_spec.versions = vlist
 
@@ -222,6 +288,8 @@ def _check_dependency_satisfiability(
 
                 if when1.intersects(when2) and (not dep1.intersects(dep2)):
                     sat = False
+                    # TODO: should conflicts be collected and returned instead of
+                    # printed to console?
                     msg = (
                         f"ERROR: uncompatible requirements for dependency '{name}'!\n"
                         f"Requirement 1: {str(dep1)}; when-spec: {str(when1)}\n"
@@ -237,7 +305,7 @@ def _check_dependency_satisfiability(
 # TODO: change lookup data structure to support these operations
 def _get_pypi_filenames_hashes(
     pypi_name: str, versions: List[pv.Version]
-) -> Optional[Tuple[str, List[Tuple[sv.Version, str]]]]:
+) -> Tuple[str, List[Tuple[sv.Version, str]]] | APIError:
     """Query the JSON API for file information.
 
     The result includes PyPI base location, file format, as well as filenames
@@ -255,16 +323,15 @@ def _get_pypi_filenames_hashes(
     )
 
     if r.status_code != 200:
-        print(
-            f"Error when querying json API. status code : {r.status_code}",
-            file=sys.stderr,
-        )
         if r.status_code == 404:
-            print(
-                f"Package {pypi_name} not found on PyPI...",
-                file=sys.stderr,
-            )
-        return None
+            msg = f"Package {pypi_name} not found on PyPI (status code 404)"
+            return APIError(msg)
+
+        msg = (
+            f"Error when querying JSON API (status code {r.status_code})."
+            f" Response: {r.text}"
+        )
+        return APIError(msg)
 
     files = r.json()["files"]
 
@@ -273,25 +340,17 @@ def _get_pypi_filenames_hashes(
     if len(non_wheels) == 0:
         msg = (
             "No source distributions found, only wheels!"
-            "\nWheel file parsing not supported yet..."
+            " Wheel file parsing not supported yet."
         )
-        print(
-            msg,
-            file=sys.stderr,
-        )
-        return None
+        return APIError(msg)
 
     # parse the archive file extension of sdists
     # TODO: we're assuming all sdists have the same extension, it would make sense to
     # allow different versions to have different file extensions
     archive_extension = _get_archive_extension(non_wheels[-1]["filename"])
 
-    if archive_extension is None:
-        print(
-            "No archive file extension recognized.",
-            file=sys.stderr,
-        )
-        return None
+    if isinstance(archive_extension, APIError):
+        return archive_extension
 
     spack_versions: List[Tuple[sv.Version, str]] = []
     pypi_base = ""
@@ -324,10 +383,15 @@ def _get_pypi_filenames_hashes(
 
         spack_versions.append((spack_version, sha256))
 
+    if not spack_versions:
+        msg = "No matching sdist files found on PyPI."
+        return APIError(msg)
+
     return pypi_base, spack_versions
 
 
-def _people_to_strings(parsed_people: List[Tuple[str | None, str | None]]):
+def _people_to_strings(parsed_people: List[Tuple[str | None, str | None]]) -> List[str]:
+    """Convert 'authors' or 'maintainers' lists to strings."""
     people = []
     for p0, p1 in parsed_people:
         if p0 is None and p1 is None:
@@ -339,7 +403,7 @@ def _people_to_strings(parsed_people: List[Tuple[str | None, str | None]]):
         else:
             people.append(f"{p0}, {p1}")
 
-    return people
+    return people  # type: ignore
 
 
 def _parse_name(
@@ -384,58 +448,6 @@ def _parse_version(
     else:
         msg = f"Invalid version: {candidate_version_str}"
         return parsing.ConfigurationError(msg, key="project.version")
-
-
-class ConversionError(Exception):
-    """Error while converting a packaging requirement to spack."""
-
-    def __init__(
-        self,
-        msg: str,
-        *,
-        requirement: str | None = None,
-    ):
-        """Initialize error."""
-        super().__init__(msg)
-        self._requirement = requirement
-
-    @property
-    def requirement(self) -> str | None:  # pragma: no cover
-        """Get requirement."""
-        return self._requirement
-
-
-class ParseError(Exception):
-    """Error in parsing a pyproject.toml file."""
-
-    def __init__(
-        self,
-        msg: str,
-        *,
-        file: str | None = None,
-        pkg_name: str | None = None,
-        pkg_version: str | None = None,
-    ):
-        """Initialize error."""
-        super().__init__(msg)
-        self._file = file
-        self._pkg_name = pkg_name
-        self._pkg_version = pkg_version
-
-    @property
-    def file(self) -> str | None:  # pragma: no cover
-        """Get file."""
-        return self._file
-
-    @property
-    def pkg_name(self) -> str | None:  # pragma: no cover
-        """Get package name."""
-        return self._pkg_name
-
-    @property
-    def pkg_version(self) -> str | None:  # pragma: no cover
-        """Get package version."""
-        return self._pkg_version
 
 
 class PyProject:
@@ -679,14 +691,12 @@ class SpackPyPkg:
         # versions and hashes for the given pyprojects
         res = _get_pypi_filenames_hashes(name, pyproject_versions)
 
-        if res is None:
+        if isinstance(res, APIError):
+            msg = f"API Error: {str(res)}"
+            print(msg, file=sys.stderr)
             return None
 
         pypi_base, version_hash_list = res
-
-        if not version_hash_list:
-            print("No valid files found on PyPI.", file=sys.stderr)
-            return None
 
         spackpkg.pypi = pypi_base
         spackpkg.versions = version_hash_list
@@ -719,9 +729,7 @@ class SpackPyPkg:
             for r in pyproject.build_requires:
                 # a single requirement can translate to multiple distinct dependencies
                 spec_list = _convert_requirement(r)
-                if spec_list is None:
-                    msg = f"Unable to convert build dependency {str(r)}"
-                    err = ConversionError(msg, requirement=str(r))
+                if isinstance(spec_list, ConversionError):
                     if (
                         str(pyproject.version)
                         not in spackpkg.dependency_conversion_errors
@@ -731,7 +739,7 @@ class SpackPyPkg:
                         ] = []
                     spackpkg.dependency_conversion_errors[
                         str(pyproject.version)
-                    ].append(err)
+                    ].append(spec_list)
                     continue
 
                 for specs in spec_list:
@@ -749,9 +757,7 @@ class SpackPyPkg:
             # normal runtime dependencies
             for r in pyproject.dependencies:
                 spec_list = _convert_requirement(r)
-                if spec_list is None:
-                    msg = f"Unable to convert dependency {str(r)}"
-                    err = ConversionError(msg, requirement=str(r))
+                if isinstance(spec_list, ConversionError):
                     if (
                         str(pyproject.version)
                         not in spackpkg.dependency_conversion_errors
@@ -761,7 +767,7 @@ class SpackPyPkg:
                         ] = []
                     spackpkg.dependency_conversion_errors[
                         str(pyproject.version)
-                    ].append(err)
+                    ].append(spec_list)
                     continue
 
                 for specs in spec_list:
@@ -782,12 +788,7 @@ class SpackPyPkg:
                 spackpkg.variants.add(extra)
                 for r in deps:
                     spec_list = _convert_requirement(r, from_extra=extra)
-                    if spec_list is None:
-                        msg = (
-                            f"Unable to convert optional dependency {str(r)} for"
-                            f" extra {extra}"
-                        )
-                        err = ConversionError(msg, requirement=str(r))
+                    if isinstance(spec_list, ConversionError):
                         if (
                             str(pyproject.version)
                             not in spackpkg.dependency_conversion_errors
@@ -797,7 +798,7 @@ class SpackPyPkg:
                             ] = []
                         spackpkg.dependency_conversion_errors[
                             str(pyproject.version)
-                        ].append(err)
+                        ].append(spec_list)
                         continue
 
                     for specs in spec_list:
@@ -818,9 +819,7 @@ class SpackPyPkg:
                 r = requirements.Requirement("python")
                 r.specifier = pyproject.requires_python
                 spec_list = _convert_requirement(r)
-                if spec_list is None:
-                    msg = f"Unable to convert python dependency {str(r)}"
-                    err = ConversionError(msg, requirement=str(r))
+                if isinstance(spec_list, ConversionError):
                     if (
                         str(pyproject.version)
                         not in spackpkg.dependency_conversion_errors
@@ -830,7 +829,7 @@ class SpackPyPkg:
                         ] = []
                     spackpkg.dependency_conversion_errors[
                         str(pyproject.version)
-                    ].append(err)
+                    ].append(spec_list)
                     continue
 
                 for specs in spec_list:
@@ -961,8 +960,8 @@ class SpackPyPkg:
                 txt,
                 file=outfile,
             )
-            for v, err in self.file_parse_errors:
-                print(f"    # version {str(v)}: {str(err)}")
+            for v, p_err in self.file_parse_errors:
+                print(f"    # version {str(v)}: {str(p_err)}")
 
             print("", file=outfile)
 
@@ -977,10 +976,10 @@ class SpackPyPkg:
                 txt,
                 file=outfile,
             )
-            for v, errs in self.dependency_parse_errors.items():
+            for v, cfg_errs in self.dependency_parse_errors.items():
                 print(f"    # version {str(v)}:", file=outfile)
-                for err in errs:
-                    print(f"    #    {str(err)}", file=outfile)
+                for cfg_err in cfg_errs:
+                    print(f"    #    {str(cfg_err)}", file=outfile)
 
             print("", file=outfile)
 
@@ -993,10 +992,10 @@ class SpackPyPkg:
                 txt,
                 file=outfile,
             )
-            for v, errs in self.dependency_conversion_errors.items():
+            for v, cnv_errs in self.dependency_conversion_errors.items():
                 print(f"    # version {str(v)}:", file=outfile)
-                for err in errs:
-                    print(f"    #    {str(err)}", file=outfile)
+                for cnv_err in cnv_errs:
+                    print(f"    #    {str(cnv_err)}", file=outfile)
 
             print("", file=outfile)
 

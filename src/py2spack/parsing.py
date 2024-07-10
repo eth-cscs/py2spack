@@ -9,13 +9,10 @@ from __future__ import annotations
 import pathlib
 import re
 import typing
-
 from collections.abc import Mapping
 from typing import Any, List, Tuple
 
-
-from packaging import requirements
-from packaging import specifiers
+from packaging import requirements, specifiers
 
 
 class ConfigurationError(Exception):
