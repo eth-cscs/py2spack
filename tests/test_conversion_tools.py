@@ -1,17 +1,15 @@
 """Tests for conversion_tools.py module."""
 
 import pytest
-from py2spack import conversion_tools
-
+from packaging import markers, specifiers
 from packaging import version as pv
-from packaging import specifiers
-from packaging import markers
-from spack import version as sv
+from py2spack import conversion_tools
 from spack import spec
+from spack import version as sv
 
 # TODO:
 # def test_jsonversionslookup():
-#     """."""
+#
 #     lookup = JsonVersionsLookup()
 
 
@@ -31,7 +29,6 @@ from spack import spec
     ],
 )
 def test_best_lowerbound(prev, curr):
-    """."""
     prev = sv.Version(prev)
     curr = sv.Version(curr)
 
@@ -58,7 +55,6 @@ def test_best_lowerbound(prev, curr):
     ],
 )
 def test_best_upperbound(curr, nxt):
-    """."""
     curr = sv.Version(curr)
     nxt = sv.Version(nxt)
 
@@ -80,7 +76,6 @@ def test_best_upperbound(curr, nxt):
     ],
 )
 def test_acceptable_version(version_str, expected):
-    """."""
     assert conversion_tools.acceptable_version(version_str) == expected
 
 
@@ -93,14 +88,16 @@ def test_acceptable_version(version_str, expected):
     ],
 )
 def test_packaging_to_spack_version(version, expected):
-    """."""
     assert conversion_tools.packaging_to_spack_version(version) == expected
 
 
 def test_condensed_version_list_specific1():
-    """."""
     subset = [pv.Version("2.0.1"), pv.Version("2.1.0")]
-    all_versions = [pv.Version("2.0.1"), pv.Version("2.1.0"), pv.Version("2.0.5")]
+    all_versions = [
+        pv.Version("2.0.1"),
+        pv.Version("2.1.0"),
+        pv.Version("2.0.5"),
+    ]
     result = conversion_tools.condensed_version_list(subset, all_versions)
 
     assert sv.Version("2.0.5") not in result
@@ -109,7 +106,6 @@ def test_condensed_version_list_specific1():
 
 
 def test_condensed_version_list_specific2():
-    """."""
     subset = ["2.0", "2.1"]
     all_versions = [
         "2.0",
@@ -131,7 +127,6 @@ def test_condensed_version_list_specific2():
 
 
 def test_condensed_version_list_specific3():
-    """."""
     subset = ["2.0.0", "2.1"]
     all_versions = [
         "2.0.0",
@@ -153,7 +148,6 @@ def test_condensed_version_list_specific3():
 
 
 def test_condensed_version_list():
-    """."""
     subset = ["2.0", "3.5", "4.2", "2.0.1", "2.1.0", "1.9"]
     all_versions = [
         "2.0",
@@ -215,7 +209,10 @@ BLACK_VERSIONS = [
             specifiers.SpecifierSet("==23.1"),
             ["23.1.0"],
         ),
-        (specifiers.SpecifierSet("~=22.6"), ["22.6.0", "22.8.0", "22.10.0", "22.12.0"]),
+        (
+            specifiers.SpecifierSet("~=22.6"),
+            ["22.6.0", "22.8.0", "22.10.0", "22.12.0"],
+        ),
         (
             specifiers.SpecifierSet(">=22.6,<23"),
             ["22.6.0", "22.8.0", "22.10.0", "22.12.0"],
@@ -263,8 +260,8 @@ def test_pkg_specifier_set_to_version_list(
 ):
     """.
 
-    We use the package black, with versions limited to the range 22 <= v < 24 for
-    reproducibility even when black adds versions.
+    We use the package black, with versions limited to the range 22 <= v < 24
+    for reproducibility even when black adds versions.
     """
     lookup = conversion_tools.JsonVersionsLookup()
 
@@ -292,7 +289,10 @@ def test_pkg_specifier_set_to_version_list(
     [
         (markers.Marker("implementation_name == 'cpython'"), True),
         (markers.Marker("platform_python_implementation != 'cpython'"), False),
-        (markers.Marker("sys_platform == 'linux'"), [spec.Spec("platform=linux")]),
+        (
+            markers.Marker("sys_platform == 'linux'"),
+            [spec.Spec("platform=linux")],
+        ),
         (
             markers.Marker("platform_system != 'windows'"),
             [
@@ -315,8 +315,14 @@ def test_pkg_specifier_set_to_version_list(
                 spec.Spec("platform=darwin"),
             ],
         ),
-        (markers.Marker("python_version >= '3.9'"), [spec.Spec("^python@3.9:")]),
-        (markers.Marker("python_full_version < '3.9'"), [spec.Spec("^python@:3.8")]),
+        (
+            markers.Marker("python_version >= '3.9'"),
+            [spec.Spec("^python@3.9:")],
+        ),
+        (
+            markers.Marker("python_full_version < '3.9'"),
+            [spec.Spec("^python@:3.8")],
+        ),
         (
             markers.Marker("python_full_version < '3.9' and python_version > '3.9'"),
             False,
@@ -342,7 +348,6 @@ def test_pkg_specifier_set_to_version_list(
     ],
 )
 def test_evaluate_marker(marker, expected):
-    """."""
     lookup = conversion_tools.JsonVersionsLookup()
     result = conversion_tools.evaluate_marker(marker, lookup)
 

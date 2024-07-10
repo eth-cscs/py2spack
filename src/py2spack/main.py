@@ -1,4 +1,4 @@
-"""Module for parsing pyproject.toml files and converting them to a Spack package.py."""
+"""Tool for parsing PyPI packages and converting them to a Spack package.py."""
 
 import sys
 from typing import Dict, List, Optional, Set, Tuple
@@ -89,9 +89,6 @@ class APIError(Exception):
         super().__init__(msg)
 
 
-lookup = conversion_tools.JsonVersionsLookup()
-
-
 def _format_dependency(
     dependency_spec: spec.Spec,
     when_spec: spec.Spec,
@@ -99,8 +96,8 @@ def _format_dependency(
 ) -> str:
     """Format a Spack dependency.
 
-    Format the dependency (given as the main dependency spec and a "when" spec) as a
-    "depends_on(...)" statement for package.py.
+    Format the dependency (given as the main dependency spec and a "when" spec)
+    as a "depends_on(...)" statement for package.py.
 
     Parameters:
         dependency_spec: Main dependency spec, e.g. "package@4.2:"
@@ -145,8 +142,8 @@ def _get_archive_extension(filename: str) -> "str | APIError":
     extension_list = [ext for ext in archive_formats if filename.endswith(ext)]
 
     if len(extension_list) == 0:
-        # we return an API error here because the filenames are obtained through the API
-        # and the function is used during the API lookup process
+        # we return an API error here because the filenames are obtained through
+        # the API and the function is used during the API lookup process
         msg = f"No extension recognized for: {filename}!"
         return APIError(msg)
 
@@ -176,7 +173,9 @@ def _pkg_to_spack_name(name: str) -> str:
 
 
 def _convert_requirement(
-    r: requirements.Requirement, from_extra: Optional[str] = None
+    r: requirements.Requirement,
+    lookup: conversion_tools.JsonVersionsLookup,
+    from_extra: Optional[str] = None,
 ) -> List[Tuple[spec.Spec, spec.Spec]] | ConversionError:
     """Convert a packaging Requirement to its Spack equivalent.
 
@@ -200,8 +199,8 @@ def _convert_requirement(
     # by default contains just an empty when_spec
     when_spec_list = [spec.Spec()]
     if r.marker is not None:
-        # 'evaluate_marker' code returns a list of specs for  marker => represents OR of
-        # specs
+        # 'evaluate_marker' code returns a list of specs for  marker =>
+        # represents OR of specs
         try:
             marker_eval = conversion_tools.evaluate_marker(r.marker, lookup)
         except ValueError as e:
@@ -262,13 +261,14 @@ def _check_dependency_satisfiability(
 ) -> bool:
     """Checks a list of Spack dependencies for conflicts.
 
-    The list consists of triplets (dependency spec, when spec, type string). A conflict
-    arises if two dependencies specifying the same dependency package name have non-
-    intersecting dependency specs but intersecting when specs. In other words, for a
-    given package dependency (i.e. one specific name) and all requirements involving
-    that dependency, we want that "when_spec_1.intersects(when_spec_2) =>
-    dep_spec1.intersects(dep_spec_2)", or "if the dependency specs intersetct, then the
-    when specs have to intersect too".
+    The list consists of triplets (dependency spec, when spec, type string). A
+    conflict arises if two dependencies specifying the same dependency package
+    name have non-intersecting dependency specs but intersecting when specs. In
+    other words, for a given package dependency (i.e. one specific name) and all
+    requirements involving that dependency, we want that
+    "when_spec_1.intersects(when_spec_2) => dep_spec1.intersects(dep_spec_2)",
+    or "if the dependency specs intersetct, then the when specs have to
+    intersect too".
     """
     sat: bool = True
 
@@ -277,9 +277,7 @@ def _check_dependency_satisfiability(
     )
 
     for name in dependency_names:
-        pkg_dependencies = list(
-            filter(lambda dep: dep[0].name == name, dependency_list)
-        )
+        pkg_dependencies = [dep for dep in dependency_list if dep[0].name == name]
 
         for i in range(len(pkg_dependencies)):
             for j in range(i + 1, len(pkg_dependencies)):
@@ -288,12 +286,13 @@ def _check_dependency_satisfiability(
 
                 if when1.intersects(when2) and (not dep1.intersects(dep2)):
                     sat = False
-                    # TODO: should conflicts be collected and returned instead of
-                    # printed to console?
+                    # TODO: should conflicts be collected and returned instead
+                    # of printed to console?
                     msg = (
-                        f"ERROR: uncompatible requirements for dependency '{name}'!\n"
-                        f"Requirement 1: {str(dep1)}; when-spec: {str(when1)}\n"
-                        f"Requirement 2: {str(dep2)}; when-spec: {str(when2)}"
+                        f"ERROR: uncompatible requirements for dependency "
+                        f"'{name}'!\nRequirement 1: {str(dep1)}; when-spec: "
+                        f"{str(when1)}\nRequirement 2: {str(dep2)}; when-spec:"
+                        f" {str(when2)}"
                     )
                     print(
                         msg,
@@ -312,9 +311,10 @@ def _get_pypi_filenames_hashes(
     and hashes for all given versions.
 
     Returns:
-        pypi_base: a string with the pypi name and sdist filename template for the
-        package.
-        spack_versions: a list of (spack version, sha256 hash) for requested versions.
+        pypi_base: a string with the pypi name and sdist filename template for
+        the package.
+        spack_versions: a list of (spack version, sha256 hash) for requested
+        versions.
     """
     r = requests.get(
         f"https://pypi.org/simple/{pypi_name}/",
@@ -336,7 +336,8 @@ def _get_pypi_filenames_hashes(
     files = r.json()["files"]
 
     # for now, don't handle wheels only
-    non_wheels = list(filter(lambda f: not f["filename"].endswith(".whl"), files))
+    non_wheels = [f for f in files if not f["filename"].endswith(".whl")]
+
     if len(non_wheels) == 0:
         msg = (
             "No source distributions found, only wheels!"
@@ -345,8 +346,8 @@ def _get_pypi_filenames_hashes(
         return APIError(msg)
 
     # parse the archive file extension of sdists
-    # TODO: we're assuming all sdists have the same extension, it would make sense to
-    # allow different versions to have different file extensions
+    # TODO: we're assuming all sdists have the same extension, it would make
+    # sense to allow different versions to have different file extensions
     archive_extension = _get_archive_extension(non_wheels[-1]["filename"])
 
     if isinstance(archive_extension, APIError):
@@ -359,7 +360,7 @@ def _get_pypi_filenames_hashes(
     sorted_versions = sorted(versions)
     for version in reversed(sorted_versions):
         filename = f"{pypi_name}-{version}{archive_extension}"
-        matching_files = list(filter(lambda f: f["filename"] == filename, non_wheels))
+        matching_files = [f for f in non_wheels if f["filename"] == filename]
 
         if len(matching_files) != 1:
             # TODO: abort or skip? we skip here but it's still included later,
@@ -390,7 +391,9 @@ def _get_pypi_filenames_hashes(
     return pypi_base, spack_versions
 
 
-def _people_to_strings(parsed_people: List[Tuple[str | None, str | None]]) -> List[str]:
+def _people_to_strings(
+    parsed_people: List[Tuple[str | None, str | None]],
+) -> List[str]:
     """Convert 'authors' or 'maintainers' lists to strings."""
     people = []
     for p0, p1 in parsed_people:
@@ -418,8 +421,8 @@ def _parse_name(
         return parsed_name
     elif parsed_name is None:
         msg = (
-            "Field 'project.name' is missing in pyproject.toml and not explicitly"
-            " provided, skipping file"
+            "Field 'project.name' is missing in pyproject.toml and not "
+            "explicitly provided, skipping file"
         )
         return parsing.ConfigurationError(msg, key="project.name")
 
@@ -453,8 +456,8 @@ def _parse_version(
 class PyProject:
     """A class to represent a pyproject.toml file.
 
-    Contains all fields which are present in METADATA, plus additional ones only found
-    in pyproject.toml. E.g. build-backend, build dependencies.
+    Contains all fields which are present in METADATA, plus additional ones only
+    found in pyproject.toml. E.g. build-backend, build dependencies.
     """
 
     def __init__(self):
@@ -481,13 +484,15 @@ class PyProject:
     def from_toml(cls, path: str, name: str, version: str) -> "PyProject | ParseError":
         """Create a PyProject instance from a pyproject.toml file.
 
-        The version corresponding to the pyproject.toml file should be known a-priori
-        and should be passed here as a string argument. Alternatively, it can be read
-        from the pyproject.toml file if it is specified explicitly there.
+        The version corresponding to the pyproject.toml file should be known
+        a-priori and should be passed here as a string argument. Alternatively,
+        it can be read from the pyproject.toml file if it is specified
+        explicitly there.
 
         Parameters:
             path: The path to the toml file.
-            version: The version of the package which the pyproject.toml corresponds to.
+            version: The version of the package which the pyproject.toml
+            corresponds to.
 
         Returns:
             A PyProject instance.
@@ -506,8 +511,8 @@ class PyProject:
             msg = 'Section "project" missing in pyproject.toml, skipping file'
             return ParseError(msg, file=path, pkg_name=name, pkg_version=version)
 
-        # parse project name, which should be provided explicitly (otherwise it is
-        # parsed from pyproject.toml)
+        # parse project name, which should be provided explicitly (otherwise it
+        # is parsed from pyproject.toml)
         parsed_name = _parse_name(
             explicit_name=name, parsed_name=fetcher.get_str("project.name")
         )
@@ -519,10 +524,11 @@ class PyProject:
         # normalize the name
         pyproject.name = naming.simplify_name(parsed_name)
 
-        # parse project version, which should be provided explicitly (otherwise it is
-        # parsed from pyproject.toml)
+        # parse project version, which should be provided explicitly (otherwise
+        # it is parsed from pyproject.toml)
         parsed_version = _parse_version(
-            explicit_version=version, parsed_version=fetcher.get_str("project.version")
+            explicit_version=version,
+            parsed_version=fetcher.get_str("project.version"),
         )
         if isinstance(parsed_version, parsing.ConfigurationError):
             return ParseError(
@@ -552,9 +558,9 @@ class PyProject:
         if not isinstance(maintainers, parsing.ConfigurationError):
             pyproject.maintainers = _people_to_strings(maintainers)
 
-        _license = fetcher.get_license()
-        if not isinstance(_license, parsing.ConfigurationError):
-            pyproject.license = _license
+        lic = fetcher.get_license()
+        if not isinstance(lic, parsing.ConfigurationError):
+            pyproject.license = lic
 
         # parse build system
         build_req_result = fetcher.get_build_requires()
@@ -600,8 +606,8 @@ class PyProject:
 class SpackPyPkg:
     """Class representing a Spack PythonPackage object.
 
-    Instances are created directly from PyProject objects, by converting PyProject
-    fields and semantics to their Spack equivalents (where possible).
+    Instances are created directly from PyProject objects, by converting
+    PyProject fields and semantics to their Spack equivalents (where possible).
     """
 
     def __init__(self):
@@ -624,7 +630,7 @@ class SpackPyPkg:
 
         # self.import_modules = []
 
-    def _get_metadata(self, pyproject: PyProject):
+    def get_metadata(self, pyproject: PyProject):
         """Load and convert main metadata from given PyProject instance.
 
         Does not include pypi field, versions, or the dependencies.
@@ -647,11 +653,12 @@ class SpackPyPkg:
     @staticmethod
     def from_pyprojects(
         pyprojects: List[PyProject],
+        lookup: conversion_tools.JsonVersionsLookup,
     ) -> "SpackPyPkg | None":
         """Takes PyProject objects and converts them to a single SpackPyPkg.
 
-        Metadata is extracted from the most recent PyProject version. Dependencies are
-        collected for all versions and combined.
+        Metadata is extracted from the most recent PyProject version.
+        Dependencies are collected for all versions and combined.
         """
         if len(pyprojects) == 0:
             print("Received an empty list.", file=sys.stderr)
@@ -664,8 +671,8 @@ class SpackPyPkg:
         for pyproject in pyprojects:
             if pyproject.name != name or pyproject.version is None:
                 msg = (
-                    "All PyProject objects must have the same name and a specified "
-                    "version."
+                    "All PyProject objects must have the same name and a "
+                    "specified version."
                 )
 
                 print(
@@ -682,13 +689,13 @@ class SpackPyPkg:
         spackpkg = SpackPyPkg()
 
         # use the newest version to parse the metadata
-        # TODO: some fields should be parsed and combined from all versions, e.g.
-        # license
+        # TODO: some fields should be parsed and combined from all versions,
+        # e.g. license
         most_recent = sorted_pyprojects[-1]
-        spackpkg._get_metadata(most_recent)
+        spackpkg.get_metadata(most_recent)
 
-        # load PyPI location for the spack package as well as a list of available
-        # versions and hashes for the given pyprojects
+        # load PyPI location for the spack package as well as a list of
+        # available versions and hashes for the given pyprojects
         res = _get_pypi_filenames_hashes(name, pyproject_versions)
 
         if isinstance(res, APIError):
@@ -705,14 +712,14 @@ class SpackPyPkg:
         spackpkg.all_versions = lookup[spackpkg.pypi_name]
 
         # Conversion and simplification of dependencies summarized:
-        # Collect unique dependencies (dependency spec, when spec) together with a list
-        # of versions for which this dependency is required.
+        # Collect unique dependencies (dependency spec, when spec) together with
+        # a list of versions for which this dependency is required.
         # Condense the version list and add it to the when spec.
-        # For each pair of dependencies (for the same package), make sure that there are
-        # no conflicts/unsatisfiable requirements.
+        # For each pair of dependencies (for the same package), make sure that
+        # there are no conflicts/unsatisfiable requirements.
 
-        # map each unique dependency (dependency spec, when spec) to a list of package
-        # versions that have this dependency
+        # map each unique dependency (dependency spec, when spec) to a list of
+        # package versions that have this dependency
         specs_to_versions: Dict[Tuple[spec.Spec, spec.Spec], List[pv.Version]] = {}
 
         # map dependencies to their dependency types (build, run, test, ...)
@@ -727,8 +734,9 @@ class SpackPyPkg:
 
             # build dependencies
             for r in pyproject.build_requires:
-                # a single requirement can translate to multiple distinct dependencies
-                spec_list = _convert_requirement(r)
+                # a single requirement can translate to multiple distinct
+                # dependencies
+                spec_list = _convert_requirement(r, lookup)
                 if isinstance(spec_list, ConversionError):
                     if (
                         str(pyproject.version)
@@ -756,7 +764,7 @@ class SpackPyPkg:
                     specs_to_types[specs].add("build")
             # normal runtime dependencies
             for r in pyproject.dependencies:
-                spec_list = _convert_requirement(r)
+                spec_list = _convert_requirement(r, lookup)
                 if isinstance(spec_list, ConversionError):
                     if (
                         str(pyproject.version)
@@ -787,7 +795,7 @@ class SpackPyPkg:
             for extra, deps in pyproject.optional_dependencies.items():
                 spackpkg.variants.add(extra)
                 for r in deps:
-                    spec_list = _convert_requirement(r, from_extra=extra)
+                    spec_list = _convert_requirement(r, lookup, from_extra=extra)
                     if isinstance(spec_list, ConversionError):
                         if (
                             str(pyproject.version)
@@ -818,7 +826,7 @@ class SpackPyPkg:
             if pyproject.requires_python is not None:
                 r = requirements.Requirement("python")
                 r.specifier = pyproject.requires_python
-                spec_list = _convert_requirement(r)
+                spec_list = _convert_requirement(r, lookup)
                 if isinstance(spec_list, ConversionError):
                     if (
                         str(pyproject.version)
@@ -846,16 +854,17 @@ class SpackPyPkg:
                     specs_to_types[specs].add("run")
 
         # now we have a list of versions for each requirement
-        # convert versions to an equivalent condensed version list, and add this list to
-        # the when spec. from there, build a complete list with all dependencies
+        # convert versions to an equivalent condensed version list, and add this
+        # list to the when spec. from there, build a complete list with all
+        # dependencies
 
         final_dependency_list: List[Tuple[spec.Spec, spec.Spec, str]] = []
 
         for (dep_spec, when_spec), vlist in specs_to_versions.items():
             types = specs_to_types[dep_spec, when_spec]
 
-            # convert the set of types to a string as it would be displayed in the
-            # package.py, e.g. '("build", "run")'.
+            # convert the set of types to a string as it would be displayed in
+            # the package.py, e.g. '("build", "run")'.
             canonical_typestring = str(tuple(sorted(list(types)))).replace("'", '"')
 
             versions_condensed = conversion_tools.condensed_version_list(
@@ -869,8 +878,8 @@ class SpackPyPkg:
 
         if not satisfiable:
             msg = (
-                f"Cannot convert package '{spackpkg.pypi_name}' due to uncompatible "
-                "requirements."
+                f"Cannot convert package '{spackpkg.pypi_name}' due to "
+                "incompatible requirements."
             )
             print(
                 msg,
@@ -895,25 +904,29 @@ class SpackPyPkg:
         """
         print("Outputting package.py...\n")
 
-        copyright = """\
+        cpright = """\
 # Copyright 2013-2024 Lawrence Livermore National Security, LLC and other
 # Spack Project Developers. See the top-level COPYRIGHT file for details.
 #
 # SPDX-License-Identifier: (Apache-2.0 OR MIT)
 """
 
-        print(copyright, file=outfile)
+        print(cpright, file=outfile)
 
         print("from spack.package import *", file=outfile)
         print("", file=outfile)
 
-        print(f"class {naming.mod_to_class(self.name)}(PythonPackage):", file=outfile)
+        print(
+            f"class {naming.mod_to_class(self.name)}(PythonPackage):",
+            file=outfile,
+        )
 
         if self.description is not None and len(self.description) > 0:
             print(f'    """{self.description}"""', file=outfile)
         else:
+            txt = '    """FIXME: Put a proper description' ' of your package here."""'
             print(
-                '    """FIXME: Put a proper description of your package here."""',
+                txt,
                 file=outfile,
             )
 
@@ -953,8 +966,8 @@ class SpackPyPkg:
         # fixme for unparsed versions
         if self.file_parse_errors:
             txt = (
-                "    # FIXME: the pyproject.toml files for the following versions"
-                " could not be parsed"
+                "    # FIXME: the pyproject.toml files for the following "
+                "versions could not be parsed"
             )
             print(
                 txt,
@@ -1018,7 +1031,8 @@ class SpackPyPkg:
             print(f"    with default_args(type={dep_type}):", file=outfile)
             for dep_spec, when_spec in sorted_dependencies:
                 print(
-                    "        " + _format_dependency(dep_spec, when_spec), file=outfile
+                    "        " + _format_dependency(dep_spec, when_spec),
+                    file=outfile,
                 )
 
             print("", file=outfile)
@@ -1027,10 +1041,10 @@ class SpackPyPkg:
 
 
 if __name__ == "__main__":
-    pyprojects = []
-    for v in ["23.12.0", "23.12.1", "24.2.0", "24.4.0", "24.4.1", "24.4.2"]:
+    pprojects = []
+    for vn in ["23.12.0", "23.12.1", "24.2.0", "24.4.0", "24.4.1", "24.4.2"]:
         py_pkg = PyProject.from_toml(
-            f"example_pyprojects/black/pyproject{v}.toml", "black", v
+            f"example_pyprojects/black/pyproject{vn}.toml", "black", vn
         )
         # for v in ["4.66.1", "4.66.2", "4.66.3", "4.66.4"]:
         #     py_pkg = PyProject.from_toml(
@@ -1038,19 +1052,28 @@ if __name__ == "__main__":
         #     )
 
         if isinstance(py_pkg, ParseError):
+            err_txt = (
+                f"Error: could not generate PyProject from pyproject{vn}.toml:"
+                f" {py_pkg}"
+            )
             print(
-                f"Error: could not generate PyProject from pyproject{v}.toml: {py_pkg}",
+                err_txt,
                 file=sys.stderr,
             )
             continue
 
-        pyprojects.append(py_pkg)
+        pprojects.append(py_pkg)
+
+    lookup = conversion_tools.JsonVersionsLookup()
 
     # convert to spack
-    spack_pkg = SpackPyPkg.from_pyprojects(pyprojects)
+    spack_pkg = SpackPyPkg.from_pyprojects(pprojects, lookup)
 
     if spack_pkg is None:
-        print("Error: could not generate spack package from PyProject", file=sys.stderr)
+        print(
+            "Error: could not generate spack package from PyProject",
+            file=sys.stderr,
+        )
         exit()
 
     if USE_TEST_PREFIX:
@@ -1062,7 +1085,8 @@ if __name__ == "__main__":
     spack_pkg.print_package(outfile=sys.stdout)
 
     # or print to file.
-    # TODO: allow tool to create a folder for the package and store package.py there
+    # TODO: allow tool to create a folder for the package and store package.py
+    # there
     # with open("output/package.py", "w+") as f:
     #     spack_pkg.print_package(outfile=f)
 

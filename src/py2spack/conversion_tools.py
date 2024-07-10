@@ -1,4 +1,4 @@
-"""Utilities for converting python packaging requirements to Spack dependency specs.
+"""Utilities for converting packaging requirements to Spack dependency specs.
 
 The code is adapted from Spack/Harmen Stoppels: https://github.com/spack/pypi-to-spack-package.
 """
@@ -37,11 +37,11 @@ KNOWN_PYTHON_VERSIONS = (
     (4, 0, 0),
 )
 
+# TODO: integrate this into a datastructure, omit mutable global state
 evalled: Dict = dict()
 
 
 def acceptable_version(version: str) -> Optional[pv.Version]:
-    """Try to parse version string using packaging."""
     try:
         v = pv.parse(version)
         # do not support post releases of prereleases etc.
@@ -112,8 +112,8 @@ def _best_upperbound(
 ) -> sv.StandardVersion:
     """Return the most general upper bound that includes curr but not nxt.
 
-    Invariant is that curr < nxt. Here, "most general" means the differentiation should
-    happen as high as possible in the version specifier hierarchy.
+    Invariant is that curr < nxt. Here, "most general" means the differentiation
+    should happen as high as possible in the version specifier hierarchy.
     """
     assert curr < nxt
     i = 0
@@ -127,8 +127,8 @@ def _best_upperbound(
         ldiff = len(nxt) - len(curr)
         # e.g. curr = 3.4, nxt = 3.4.5, i = 2
         release, _ = curr.version
-        # need to add enough zeros to not include a sub-version by accident (e.g. when
-        # curr=2.0, nxt=2.0.0.1)
+        # need to add enough zeros to not include a sub-version by accident
+        # (e.g. when curr=2.0, nxt=2.0.0.1)
         release += (0,) * ldiff
         seperators = (".",) * (len(release) - 1) + ("",)
         as_str = ".".join(str(x) for x in release)
@@ -157,13 +157,14 @@ def _best_lowerbound(
 
         Curr is longer:
             Either ther exists index i s.t. prev[i] < curr[i],
-            or they have the same prefix, then take curr up to the first non-zero index
-            after.
+            or they have the same prefix, then take curr up to the first
+            non-zero index after.
 
     Edge case:
         prereleases, post, dev, local versions: NOT SUPPORTED!
         Semantics of prereleases are tricky.
-        E.g. version 1.1-alpha1 is included in range :1.0, but not in range :1.0.0
+        E.g. version 1.1-alpha1 is included in range :1.0, but not in
+        range :1.0.0
     """
     assert prev < curr
 
@@ -178,12 +179,12 @@ def _best_lowerbound(
             return curr.up_to(i + 1)
         i += 1
 
-    # both have the same prefix and curr is longer (otherwise we would have found an
-    # index i where prev[i] < curr[i], according to invariant)
+    # both have the same prefix and curr is longer (otherwise we would have
+    # found an index i where prev[i] < curr[i], according to invariant)
     assert len(curr) > len(prev)
 
-    # according to invariant, there must be a non-zero value (otherwise the versions
-    # would be identical)
+    # according to invariant, there must be a non-zero value (otherwise the
+    # versions would be identical)
     while i < len(curr) and curr.version[0][i] == 0:
         i += 1
 
@@ -269,7 +270,7 @@ def _version_type_supported(version: pv.Version) -> bool:
 def condensed_version_list(
     _subset_of_versions: List[pv.Version], _all_versions: List[pv.Version]
 ) -> sv.VersionList:
-    """Create a condensed list of version ranges equivalent to a version subset."""
+    """Create condensed list of version ranges equivalent to version subset."""
     # for now, don't support prereleases etc.
     subset_filtered = list(filter(_version_type_supported, _subset_of_versions))
     all_versions_filtered = list(filter(_version_type_supported, _all_versions))
@@ -278,8 +279,8 @@ def condensed_version_list(
         all_versions_filtered
     ) < len(_all_versions):
         print(
-            "Prereleases as well as post, dev, and local versions are not supported",
-            "and will be excluded!",
+            "Prereleases as well as post, dev, and local versions are not ",
+            "supported and will be excluded!",
             file=sys.stderr,
         )
 
@@ -366,8 +367,8 @@ def _eval_python_version_marker(
 def _simplify_python_constraint(versions: sv.VersionList) -> None:
     """Modifies a version list to remove redundant constraints.
 
-    These redundant constraints are implied by UNSUPPORTED_PYTHON. Version list is
-    modified in place.
+    These redundant constraints are implied by UNSUPPORTED_PYTHON. Version list
+    is modified in place.
     """
     # First delete everything implied by UNSUPPORTED_PYTHON
     vs = versions.versions
@@ -594,8 +595,8 @@ def evaluate_marker(
 ) -> Union[bool, None, List[spec.Spec]]:
     """Evaluate a marker.
 
-    Evaluate the marker expression tree either (1) as a list of specs that constitute
-    the when conditions, (2) statically as True or False given that we only support
-    cpython, (3) None if we can't translate it into Spack DSL.
+    Evaluate the marker expression tree either (1) as a list of specs that
+    constitute the when conditions, (2) statically as True or False given that
+    we only support cpython, (3) None if we can't translate it into Spack DSL.
     """
     return _do_evaluate_marker(m._markers, version_lookup)

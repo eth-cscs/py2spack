@@ -1,8 +1,7 @@
 """Tests for parsing.py module."""
 
-from py2spack import parsing
 from packaging import specifiers
-
+from py2spack import parsing
 
 data = {
     "project": {
@@ -28,7 +27,6 @@ fetcher = parsing.DataFetcher(data)
 
 
 def test_contains():
-    """."""
     assert "project" in fetcher
     assert "project.dependencies" in fetcher
     assert "project.optional-dependencies.extra" in fetcher
@@ -36,13 +34,14 @@ def test_contains():
 
 
 def test_get():
-    """."""
-    assert fetcher.get("project.dependencies") == ["package1>=1.0", "package2==2.0"]
+    assert fetcher.get("project.dependencies") == [
+        "package1>=1.0",
+        "package2==2.0",
+    ]
     assert fetcher.get("project.license.text") == "MIT"
 
 
 def test_get_str():
-    """."""
     assert fetcher.get_str("project.license.text") == "MIT"
     assert fetcher.get_str("project.nonexistent") is None
     assert isinstance(
@@ -51,7 +50,6 @@ def test_get_str():
 
 
 def test_get_list():
-    """."""
     assert fetcher.get_list("project.dependencies") == [
         "package1>=1.0",
         "package2==2.0",
@@ -63,7 +61,6 @@ def test_get_list():
 
 
 def test_get_dict():
-    """."""
     assert fetcher.get_dict("project.urls") == {
         "Homepage": "https://example.com",
         "Repository": "https://github.com/example/repo",
@@ -76,7 +73,6 @@ def test_get_dict():
 
 
 def test_get_people():
-    """."""
     assert fetcher.get_people("project.authors") == [
         ("Author One", "author1@example.com")
     ]
@@ -87,7 +83,6 @@ def test_get_people():
 
 
 def test_get_dependencies():
-    """."""
     deps, errs = fetcher.get_dependencies()
     assert [str(d) for d in deps] == ["package1>=1.0", "package2==2.0"]
     assert errs == []
@@ -102,7 +97,6 @@ def test_get_dependencies():
 
 
 def test_get_optional_dependencies():
-    """."""
     deps, errs = fetcher.get_optional_dependencies()
     assert [str(d) for d in deps["extra"]] == [
         "extra-package1>=1.0",
@@ -112,7 +106,6 @@ def test_get_optional_dependencies():
 
 
 def test_get_license():
-    """."""
     assert fetcher.get_license() == "MIT"
     # Simulate a scenario where the license is extracted from classifiers
     fetcher_with_classifier = parsing.DataFetcher(
@@ -122,7 +115,6 @@ def test_get_license():
 
 
 def test_get_requires_python():
-    """."""
     requires_python = fetcher.get_requires_python()
     assert isinstance(requires_python, specifiers.SpecifierSet)
     assert str(requires_python) == ">=3.6"
@@ -132,14 +124,12 @@ def test_get_requires_python():
 
 
 def test_get_build_requires():
-    """."""
     build_reqs, build_errs = fetcher.get_build_requires()
     assert [str(r) for r in build_reqs] == ["setuptools>=40.8.0", "wheel"]
     assert build_errs == []
 
 
 def test_get_build_backend():
-    """."""
     assert fetcher.get_build_backend() == "setuptools.build_meta"
     # Simulate a scenario where build-backend is missing
     backend_missing_fetcher = parsing.DataFetcher({"build-system": {}})
@@ -147,7 +137,6 @@ def test_get_build_backend():
 
 
 def test_get_homepage():
-    """."""
     assert fetcher.get_homepage() == "https://example.com"
     # Simulate a scenario where homepage is missing
     no_homepage_fetcher = parsing.DataFetcher({"project": {"urls": {}}})

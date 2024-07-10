@@ -1,13 +1,11 @@
 """Integration tests for py2spack package."""
 
-from py2spack import main
-
-
 import sys
+
+from py2spack import conversion_tools, main
 
 
 def test_e2e_uninterrupted():
-    """."""
     pyprojects = []
     name = "black"
     for v in ["23.12.0", "23.12.1", "24.2.0", "24.4.0", "24.4.1", "24.4.2"]:
@@ -19,7 +17,8 @@ def test_e2e_uninterrupted():
 
         pyprojects.append(py_pkg)
 
-    spack_pkg = main.SpackPyPkg.from_pyprojects(pyprojects)
+    lookup = conversion_tools.JsonVersionsLookup()
+    spack_pkg = main.SpackPyPkg.from_pyprojects(pyprojects, lookup)
 
     assert spack_pkg is not None
 

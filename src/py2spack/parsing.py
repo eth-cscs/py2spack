@@ -88,8 +88,8 @@ class DataFetcher:
             for item in val:
                 if not isinstance(item, str):
                     msg = (
-                        f'Field "{key}" contains item with invalid type, expecting a '
-                        f'string (got "{item}")'
+                        f'Field "{key}" contains item with invalid type,'
+                        f' expecting a string (got "{item}")'
                     )
                     return ConfigurationError(msg, key=key)
             return val
@@ -102,15 +102,15 @@ class DataFetcher:
             val = self.get(key)
             if not isinstance(val, dict):
                 msg = (
-                    f'Field "{key}" has an invalid type, expecting a dictionary of '
-                    f'strings (got "{val}")'
+                    f'Field "{key}" has an invalid type, expecting a dictionary'
+                    f' of strings (got "{val}")'
                 )
                 return ConfigurationError(msg, key=key)
             for subkey, item in val.items():
                 if not isinstance(item, str):
                     msg = (
-                        f'Field "{key}.{subkey}" has an invalid type, expecting a '
-                        f'string (got "{item}")'
+                        f'Field "{key}.{subkey}" has an invalid type, expecting'
+                        f' a string (got "{item}")'
                     )
                     return ConfigurationError(msg, key=f"{key}.{subkey}")
             return val
@@ -172,7 +172,9 @@ class DataFetcher:
     def get_optional_dependencies(
         self,
     ) -> (
-        tuple[dict[str, list[requirements.Requirement]], list[ConfigurationError]]
+        tuple[
+            dict[str, list[requirements.Requirement]], list[ConfigurationError]
+        ]
         | ConfigurationError
     ):
         """Parses the 'optional-dependencies' field."""
@@ -183,8 +185,9 @@ class DataFetcher:
 
         if not isinstance(val, dict):
             msg = (
-                'Field "project.optional-dependencies" has an invalid type, expecting a'
-                f' dictionary of PEP 508 requirement strings (got "{val}")'
+                'Field "project.optional-dependencies" has an invalid type, '
+                "expecting a dictionary of PEP 508 requirement strings "
+                f'(got "{val}")'
             )
             return ConfigurationError(msg, key="project.optional-dependences")
 
@@ -193,8 +196,8 @@ class DataFetcher:
         for extra, requirements_list in val.copy().items():
             if not isinstance(extra, str):
                 msg = (
-                    "Field project.optional-dependencies contains extra of invalid"
-                    f" type, expected string (got '{extra}')"
+                    "Field project.optional-dependencies contains extra of "
+                    f"invalid type, expected string (got '{extra}')"
                 )
                 requirement_errors.append(
                     ConfigurationError(msg, key="project.optional-dependencies")
@@ -203,9 +206,9 @@ class DataFetcher:
 
             if not isinstance(requirements_list, list):
                 msg = (
-                    f'Field "project.optional-dependencies.{extra}" has an invalid type'
-                    f", expecting a dictionary PEP 508 requirement strings "
-                    f'(got "{requirements_list}")'
+                    f'Field "project.optional-dependencies.{extra}" has an '
+                    f"invalid type, expecting a dictionary PEP 508 requirement "
+                    f'strings (got "{requirements_list}")'
                 )
                 requirement_errors.append(
                     ConfigurationError(msg, key="project.optional-dependencies")
@@ -216,22 +219,30 @@ class DataFetcher:
             for req in requirements_list:
                 if not isinstance(req, str):
                     msg = (
-                        f'Field "project.optional-dependencies.{extra}" has an invalid '
-                        f'type, expecting a PEP 508 requirement string (got "{req}")'
+                        f'Field "project.optional-dependencies.{extra}" has an '
+                        "invalid type, expecting a PEP 508 requirement string "
+                        f'(got "{req}")'
                     )
                     requirement_errors.append(
-                        ConfigurationError(msg, key="project.optional-dependencies")
+                        ConfigurationError(
+                            msg, key="project.optional-dependencies"
+                        )
                     )
                     continue
                 try:
-                    requirements_dict[extra].append(requirements.Requirement(req))
+                    requirements_dict[extra].append(
+                        requirements.Requirement(req)
+                    )
                 except requirements.InvalidRequirement:
                     msg = (
-                        f'Field "project.optional-dependencies.{extra}" contains '
-                        f'an invalid PEP 508 requirement string "{req}"'
+                        f'Field "project.optional-dependencies.{extra}" '
+                        "contains an invalid PEP 508 requirement string "
+                        f'"{req}"'
                     )
                     requirement_errors.append(
-                        ConfigurationError(msg, key="project.optional-dependencies")
+                        ConfigurationError(
+                            msg, key="project.optional-dependencies"
+                        )
                     )
                     continue
         return (dict(requirements_dict), requirement_errors)
@@ -239,8 +250,8 @@ class DataFetcher:
     def get_license(self) -> str | None | ConfigurationError:
         """Tries to get the project license.
 
-        Parses the 'license' field. If the license is not specified there, tries to
-        parse 'classifiers' field and read license from it.
+        Parses the 'license' field. If the license is not specified there,
+        tries to parse 'classifiers' field and read license from it.
         """
         _license = self._get_license_from_field()
 
@@ -266,7 +277,9 @@ class DataFetcher:
             for field in _license:
                 if field not in ("file", "text"):
                     msg = f'Unexpected field "project.license.{field}"'
-                    return ConfigurationError(msg, key=f"project.license.{field}")
+                    return ConfigurationError(
+                        msg, key=f"project.license.{field}"
+                    )
 
             filename = self.get_str("project.license.file")
             text = self.get_str("project.license.text")
@@ -285,7 +298,8 @@ class DataFetcher:
 
             if text is None:
                 msg = (
-                    "Invalid 'project.license.text' value, expecting string (got None)"
+                    "Invalid 'project.license.text' value, expecting string "
+                    "(got None)"
                 )
                 return ConfigurationError(msg, key="project.license")
 
@@ -308,7 +322,7 @@ class DataFetcher:
         return license_text
 
     def _get_license_from_classifiers(self) -> str | None:
-        """Parses the 'classifiers' field and tries to exract license from it."""
+        """Parses the 'classifiers' field, tries to exract license from it."""
         # license can also be specified in classifiers
         classifiers = self.get_list("project.classifiers")
         if isinstance(classifiers, list):
@@ -327,17 +341,21 @@ class DataFetcher:
                 return license_text
         return None
 
-    def get_requires_python(self) -> specifiers.SpecifierSet | ConfigurationError:
+    def get_requires_python(
+        self,
+    ) -> specifiers.SpecifierSet | ConfigurationError:
         """Parses the 'requires-python' field."""
         parsed_requires_python = self.get_str("project.requires-python")
         if isinstance(parsed_requires_python, str):
             try:
-                requires_python = specifiers.SpecifierSet(parsed_requires_python)
+                requires_python = specifiers.SpecifierSet(
+                    parsed_requires_python
+                )
                 return requires_python
             except specifiers.InvalidSpecifier:
                 msg = (
-                    'Field "project.requires-python" contains an invalid PEP 508 '
-                    f'requirement string "{parsed_requires_python}"'
+                    'Field "project.requires-python" contains an invalid PEP '
+                    f'508 requirement string "{parsed_requires_python}"'
                 )
                 return ConfigurationError(msg, key="project.requires-python")
 
@@ -407,9 +425,9 @@ class Readme(typing.NamedTuple):
 
 def valid_pypi_name(name) -> bool:
     """Checks whether 'name' is a valid pypi name."""
-    # See https://packaging.python.org/en/latest/specifications/core-metadata/#name and
-    # https://packaging.python.org/en/latest/specifications/name-normalization/#name-format
     return (
-        re.match(r"^([A-Z0-9]|[A-Z0-9][A-Z0-9._-]*[A-Z0-9])$", name, re.IGNORECASE)
+        re.match(
+            r"^([A-Z0-9]|[A-Z0-9][A-Z0-9._-]*[A-Z0-9])$", name, re.IGNORECASE
+        )
         is not None
     )
