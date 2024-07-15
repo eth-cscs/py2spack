@@ -204,7 +204,9 @@ def _convert_requirement(
         try:
             marker_eval = conversion_tools.evaluate_marker(r.marker, lookup)
         except ValueError as e:
-            from_extra_str = "" if not from_extra else f" from extra {from_extra}"
+            from_extra_str = (
+                "" if not from_extra else f" from extra {from_extra}"
+            )
             msg = (
                 f"Unable to convert marker {r.marker} for dependency"
                 f" {r}{from_extra_str}: {e}"
@@ -239,7 +241,9 @@ def _convert_requirement(
 
         # return Error if no version satisfies the requirement
         if not vlist:
-            from_extra_str = "" if not from_extra else f" from extra {from_extra}"
+            from_extra_str = (
+                "" if not from_extra else f" from extra {from_extra}"
+            )
             msg = (
                 f"Unable to convert dependency"
                 f" {r}{from_extra_str}: no matching versions"
@@ -277,7 +281,9 @@ def _check_dependency_satisfiability(
     )
 
     for name in dependency_names:
-        pkg_dependencies = [dep for dep in dependency_list if dep[0].name == name]
+        pkg_dependencies = [
+            dep for dep in dependency_list if dep[0].name == name
+        ]
 
         for i in range(len(pkg_dependencies)):
             for j in range(i + 1, len(pkg_dependencies)):
@@ -445,7 +451,9 @@ def _parse_version(
         return parsing.ConfigurationError(msg, key="project.version")
 
     # check version validity
-    candidate_version = conversion_tools.acceptable_version(candidate_version_str)
+    candidate_version = conversion_tools.acceptable_version(
+        candidate_version_str
+    )
     if candidate_version:
         return candidate_version
     else:
@@ -475,13 +483,17 @@ class PyProject:
         self.authors: List[str] = []
         self.maintainers: List[str] = []
         self.dependencies: List[requirements.Requirement] = []
-        self.optional_dependencies: Dict[str, List[requirements.Requirement]] = {}
+        self.optional_dependencies: Dict[
+            str, List[requirements.Requirement]
+        ] = {}
         self.homepage: Optional[str] = None
         self.metadata_errors: List[parsing.ConfigurationError] = []
         self.dependency_errors: List[parsing.ConfigurationError] = []
 
     @classmethod
-    def from_toml(cls, path: str, name: str, version: str) -> "PyProject | ParseError":
+    def from_toml(
+        cls, path: str, name: str, version: str
+    ) -> "PyProject | ParseError":
         """Create a PyProject instance from a pyproject.toml file.
 
         The version corresponding to the pyproject.toml file should be known
@@ -502,14 +514,18 @@ class PyProject:
                 data = tomli.load(f)
         except (FileNotFoundError, IOError) as e:
             msg = f"Failed to read pyproject.toml, skipping file. Error: {e}"
-            return ParseError(msg, file=path, pkg_name=name, pkg_version=version)
+            return ParseError(
+                msg, file=path, pkg_name=name, pkg_version=version
+            )
 
         pyproject = PyProject()
         fetcher = parsing.DataFetcher(data)
 
         if "project" not in fetcher:
             msg = 'Section "project" missing in pyproject.toml, skipping file'
-            return ParseError(msg, file=path, pkg_name=name, pkg_version=version)
+            return ParseError(
+                msg, file=path, pkg_name=name, pkg_version=version
+            )
 
         # parse project name, which should be provided explicitly (otherwise it
         # is parsed from pyproject.toml)
@@ -622,10 +638,16 @@ class SpackPyPkg:
         self.maintainers: List[str] = []
         self.authors: List[str] = []
         self.license: Optional[str] = None
-        self.dependencies_by_type: Dict[str, List[Tuple[spec.Spec, spec.Spec]]] = {}
+        self.dependencies_by_type: Dict[
+            str, List[Tuple[spec.Spec, spec.Spec]]
+        ] = {}
         self.file_parse_errors: List[Tuple[str, ParseError]] = []
-        self.metadata_parse_errors: Dict[str, List[parsing.ConfigurationError]] = {}
-        self.dependency_parse_errors: Dict[str, List[parsing.ConfigurationError]] = {}
+        self.metadata_parse_errors: Dict[
+            str, List[parsing.ConfigurationError]
+        ] = {}
+        self.dependency_parse_errors: Dict[
+            str, List[parsing.ConfigurationError]
+        ] = {}
         self.dependency_conversion_errors: Dict[str, List[ConversionError]] = {}
 
         # self.import_modules = []
@@ -720,7 +742,9 @@ class SpackPyPkg:
 
         # map each unique dependency (dependency spec, when spec) to a list of
         # package versions that have this dependency
-        specs_to_versions: Dict[Tuple[spec.Spec, spec.Spec], List[pv.Version]] = {}
+        specs_to_versions: Dict[
+            Tuple[spec.Spec, spec.Spec], List[pv.Version]
+        ] = {}
 
         # map dependencies to their dependency types (build, run, test, ...)
         specs_to_types: Dict[Tuple[spec.Spec, spec.Spec], Set[str]] = {}
@@ -795,7 +819,9 @@ class SpackPyPkg:
             for extra, deps in pyproject.optional_dependencies.items():
                 spackpkg.variants.add(extra)
                 for r in deps:
-                    spec_list = _convert_requirement(r, lookup, from_extra=extra)
+                    spec_list = _convert_requirement(
+                        r, lookup, from_extra=extra
+                    )
                     if isinstance(spec_list, ConversionError):
                         if (
                             str(pyproject.version)
@@ -865,13 +891,17 @@ class SpackPyPkg:
 
             # convert the set of types to a string as it would be displayed in
             # the package.py, e.g. '("build", "run")'.
-            canonical_typestring = str(tuple(sorted(list(types)))).replace("'", '"')
+            canonical_typestring = str(tuple(sorted(list(types)))).replace(
+                "'", '"'
+            )
 
             versions_condensed = conversion_tools.condensed_version_list(
                 vlist, spackpkg.all_versions
             )
             when_spec.versions = versions_condensed
-            final_dependency_list.append((dep_spec, when_spec, canonical_typestring))
+            final_dependency_list.append(
+                (dep_spec, when_spec, canonical_typestring)
+            )
 
         # check for conflicts
         satisfiable = _check_dependency_satisfiability(final_dependency_list)
@@ -892,7 +922,9 @@ class SpackPyPkg:
             if typestring not in spackpkg.dependencies_by_type:
                 spackpkg.dependencies_by_type[typestring] = []
 
-            spackpkg.dependencies_by_type[typestring].append((dep_spec, when_spec))
+            spackpkg.dependencies_by_type[typestring].append(
+                (dep_spec, when_spec)
+            )
 
         return spackpkg
 
@@ -924,7 +956,10 @@ class SpackPyPkg:
         if self.description is not None and len(self.description) > 0:
             print(f'    """{self.description}"""', file=outfile)
         else:
-            txt = '    """FIXME: Put a proper description' ' of your package here."""'
+            txt = (
+                '    """FIXME: Put a proper description'
+                ' of your package here."""'
+            )
             print(
                 txt,
                 file=outfile,
@@ -1026,7 +1061,9 @@ class SpackPyPkg:
 
         for dep_type in list(self.dependencies_by_type.keys()):
             dependencies = self.dependencies_by_type[dep_type]
-            sorted_dependencies = sorted(dependencies, key=_requirement_sort_key)
+            sorted_dependencies = sorted(
+                dependencies, key=_requirement_sort_key
+            )
 
             print(f"    with default_args(type={dep_type}):", file=outfile)
             for dep_spec, when_spec in sorted_dependencies:
