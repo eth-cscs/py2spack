@@ -42,6 +42,7 @@ evalled: Dict = dict()
 
 
 def acceptable_version(version: str) -> Optional[pv.Version]:
+    """Check whether version string can be parsed and has correct format."""
     try:
         v = pv.parse(version)
         # do not support post releases of prereleases etc.
@@ -226,7 +227,9 @@ def packaging_to_spack_version(v: pv.Version) -> sv.StandardVersion:
 
     else:
         if v.post is not None:
-            release.extend((sv.version_types.VersionStrComponent("post"), v.post))
+            release.extend(
+                (sv.version_types.VersionStrComponent("post"), v.post)
+            )
             separators.extend((".", ""))
         if (
             v.dev is not None
@@ -235,7 +238,9 @@ def packaging_to_spack_version(v: pv.Version) -> sv.StandardVersion:
             separators.extend((".", ""))
         if v.local is not None:
             local_bits = [
-                int(i) if i.isnumeric() else sv.version_types.VersionStrComponent(i)
+                int(i)
+                if i.isnumeric()
+                else sv.version_types.VersionStrComponent(i)
                 for i in LOCAL_SEPARATORS_REGEX.split(v.local)
             ]
             release.extend(local_bits)
@@ -249,7 +254,9 @@ def packaging_to_spack_version(v: pv.Version) -> sv.StandardVersion:
     for i, rel in enumerate(release):
         string += f"{rel}{separators[i]}"
     if v.pre:
-        string += f"{sv.common.PRERELEASE_TO_STRING[prerelease[0]]}{prerelease[1]}"
+        string += (
+            f"{sv.common.PRERELEASE_TO_STRING[prerelease[0]]}{prerelease[1]}"
+        )
 
     spack_version = sv.StandardVersion(
         string, (tuple(release), tuple(prerelease)), separators
@@ -287,7 +294,9 @@ def condensed_version_list(
     # Sort in Spack's order, which should in principle coincide with
     # packaging's order, but may not in unforseen edge cases.
     subset = sorted(packaging_to_spack_version(v) for v in subset_filtered)
-    all_versions = sorted(packaging_to_spack_version(v) for v in all_versions_filtered)
+    all_versions = sorted(
+        packaging_to_spack_version(v) for v in all_versions_filtered
+    )
 
     # Find corresponding index
     i, j = all_versions.index(subset[0]) + 1, 1
@@ -334,7 +343,9 @@ def pkg_specifier_set_to_version_list(
     if key in evalled:
         return evalled[key]
     all_versions = version_lookup[pkg]
-    matching = [s for s in all_versions if specifier_set.contains(s, prereleases=True)]
+    matching = [
+        s for s in all_versions if specifier_set.contains(s, prereleases=True)
+    ]
     result = (
         sv.VersionList()
         if not matching
@@ -361,7 +372,9 @@ def _eval_python_version_marker(
         print(f"could not parse `{op}{value}` as specifier", file=sys.stderr)
         return None
 
-    return pkg_specifier_set_to_version_list("python", specifier, version_lookup)
+    return pkg_specifier_set_to_version_list(
+        "python", specifier, version_lookup
+    )
 
 
 def _simplify_python_constraint(versions: sv.VersionList) -> None:
@@ -402,7 +415,9 @@ def _eval_constraint(
     variable, op, value = node
 
     # Flip the comparison if the value is on the left-hand side.
-    if isinstance(variable, markers.Value) and isinstance(value, markers.Variable):
+    if isinstance(variable, markers.Value) and isinstance(
+        value, markers.Variable
+    ):
         flipped_op = {
             ">": "<",
             "<": ">",
@@ -497,7 +512,9 @@ def _eval_node(
     return _do_evaluate_marker(node, version_lookup)
 
 
-def _intersection(lhs: List[spec.Spec], rhs: List[spec.Spec]) -> List[spec.Spec]:
+def _intersection(
+    lhs: List[spec.Spec], rhs: List[spec.Spec]
+) -> List[spec.Spec]:
     """Compute intersection of spec lists.
 
     Expand: (a or b) and (c or d) = (a and c) or (a and d) or (b and c) or
