@@ -238,6 +238,8 @@ def condensed_version_list(
     if len(subset_filtered) < len(_subset_of_versions) or len(
         all_versions_filtered
     ) < len(_all_versions):
+        # TODO: this msg is displayed 100s of times. move it somewhere else and
+        # display it only once
         print(
             "Prereleases as well as post, dev, and local versions are not ",
             "supported and will be excluded!",
@@ -250,6 +252,9 @@ def condensed_version_list(
     all_versions = sorted(
         packaging_to_spack_version(v) for v in all_versions_filtered
     )
+
+    if len(subset) == 0:
+        return sv.VersionList([])
 
     # Find corresponding index
     i, j = all_versions.index(subset[0]) + 1, 1
