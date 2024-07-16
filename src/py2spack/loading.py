@@ -238,6 +238,7 @@ def _extract_from_tar(
         IOError,
         UnicodeDecodeError,
         tomli.TOMLDecodeError,
+        KeyError,
     ) as e:
         msg = f"Exception {type(e)}: {e}"
         return APIError(msg)
