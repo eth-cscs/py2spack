@@ -34,7 +34,7 @@ class ConversionError(Exception):
         self._requirement = requirement
 
     @property
-    def requirement(self) -> str | None:  # pragma: no cover
+    def requirement(self) -> str | None:
         """Get requirement."""
         return self._requirement
 
@@ -62,17 +62,17 @@ class ParseError(Exception):
         self._pkg_version = pkg_version
 
     @property
-    def file(self) -> str | None:  # pragma: no cover
+    def file(self) -> str | None:
         """Get file."""
         return self._file
 
     @property
-    def pkg_name(self) -> str | None:  # pragma: no cover
+    def pkg_name(self) -> str | None:
         """Get package name."""
         return self._pkg_name
 
     @property
-    def pkg_version(self) -> str | None:  # pragma: no cover
+    def pkg_version(self) -> str | None:
         """Get package version."""
         return self._pkg_version
 
@@ -367,9 +367,7 @@ class PyProject:
                 msg = (
                     f"Failed to read pyproject.toml, skipping file. Error: {e}"
                 )
-                return ParseError(
-                    msg, file=path, pkg_name=name, pkg_version=version
-                )
+                return ParseError(msg, pkg_name=name, pkg_version=version)
         else:
             data = path_or_data
 
@@ -378,20 +376,18 @@ class PyProject:
 
         if "project" not in fetcher:
             msg = 'Section "project" missing in pyproject.toml, skipping file'
-            return ParseError(
-                msg, file=path, pkg_name=name, pkg_version=version
-            )
+            return ParseError(msg, pkg_name=name, pkg_version=str(version))
 
         if not name or not isinstance(name, str):
             msg = "'name' string is required"
-            return ParseError(msg)
+            return ParseError(msg, pkg_name=name, pkg_version=str(version))
 
         if not version or not isinstance(version, pv.Version):
             msg = (
                 "'version' is required and must be of type "
                 "requirements.version.Version"
             )
-            return ParseError(msg)
+            return ParseError(msg, pkg_name=name, pkg_version=str(version))
 
         # normalize the name
         pyproject.name = naming.simplify_name(name)
@@ -965,7 +961,7 @@ if __name__ == "__main__":
     lookup = loading.PyPILookup()
 
     # convert to spack
-    spack_pkg = SpackPyPkg.convert_pkg("black", lookup, last_n_versions=20)
+    spack_pkg = SpackPyPkg.convert_pkg("tqdm", lookup, last_n_versions=20)
 
     if spack_pkg is None:
         print(
