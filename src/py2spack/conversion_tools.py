@@ -8,12 +8,12 @@ import sys
 from typing import Any, Dict, List, Optional, Union
 
 import packaging.version as pv  # type: ignore
-import requests  # type: ignore
 import spack.error  # type: ignore
 import spack.parser  # type: ignore
 import spack.version as sv  # type: ignore
 from packaging import markers, specifiers
 from spack import spec
+from py2spack import loading
 
 # these python versions are not supported anymore, so we shouldn't need to
 # consider them
@@ -53,59 +53,12 @@ def acceptable_version(version: str) -> Optional[pv.Version]:
         return None
 
 
-class JsonVersionsLookup:
-    """Class for retrieving available versions of package from PyPI JSON API.
-
-    Caches past requests.
-    """
-
-    def __init__(self):
-        """Initialize empty JsonVersionsLookup."""
-        self.cache: Dict[str, List[pv.Version]] = {}
-
-    def _query(self, name: str) -> List[pv.Version]:
-        """Call JSON API."""
-        r = requests.get(
-            f"https://pypi.org/simple/{name}/",
-            headers={"Accept": "application/vnd.pypi.simple.v1+json"},
-            timeout=10,
-        )
-        if r.status_code != 200:
-            print(
-                f"Json lookup error (pkg={name}): status code {r.status_code}",
-                file=sys.stderr,
-            )
-            if r.status_code == 404:
-                print(
-                    f"Package {name} not found on PyPI...",
-                    file=sys.stderr,
-                )
-            return []
-        versions = r.json()["versions"]
-        # parse and sort versions
-        return sorted({vv for v in versions if (vv := acceptable_version(v))})
-
-    def _python_versions(self) -> List[pv.Version]:
-        """Statically evaluate python versions."""
-        return [
-            pv.Version(f"{major}.{minor}.{patch}")
-            for major, minor, patch in KNOWN_PYTHON_VERSIONS
-        ]
-
-    def __getitem__(self, name: str) -> List[pv.Version]:
-        """Query cache or API for given package name.
-
-        'python' is evaluated statically.
-        """
-        result = self.cache.get(name)
-        if result is not None:
-            return result
-        if name == "python":
-            result = self._python_versions()
-        else:
-            result = self._query(name)
-        self.cache[name] = result
-        return result
+def _get_python_versions() -> List[pv.Version]:
+    """Statically evaluate python versions."""
+    return [
+        pv.Version(f"{major}.{minor}.{patch}")
+        for major, minor, patch in KNOWN_PYTHON_VERSIONS
+    ]
 
 
 def _best_upperbound(
@@ -335,14 +288,19 @@ def condensed_version_list(
 def pkg_specifier_set_to_version_list(
     pkg: str,
     specifier_set: specifiers.SpecifierSet,
-    version_lookup: JsonVersionsLookup,
+    lookup: loading.PyPILookup,
 ) -> sv.VersionList:
     """Convert the specifier set to an equivalent list of version ranges."""
     # TODO: improve how & where the caching is done?
     key = (pkg, specifier_set)
     if key in evalled:
         return evalled[key]
-    all_versions = version_lookup[pkg]
+
+    if pkg == "python":
+        all_versions = _get_python_versions()
+    else:
+        all_versions = lookup.get_versions(pkg)
+
     matching = [
         s for s in all_versions if specifier_set.contains(s, prereleases=True)
     ]
@@ -356,7 +314,7 @@ def pkg_specifier_set_to_version_list(
 
 
 def _eval_python_version_marker(
-    variable: str, op: str, value: str, version_lookup: JsonVersionsLookup
+    variable: str, op: str, value: str, lookup: loading.PyPILookup
 ) -> Optional[sv.VersionList]:
     # TODO: there might be still some bug caused by python_version vs
     # python_full_version differences.
@@ -372,9 +330,7 @@ def _eval_python_version_marker(
         print(f"could not parse `{op}{value}` as specifier", file=sys.stderr)
         return None
 
-    return pkg_specifier_set_to_version_list(
-        "python", specifier, version_lookup
-    )
+    return pkg_specifier_set_to_version_list("python", specifier, lookup)
 
 
 def _simplify_python_constraint(versions: sv.VersionList) -> None:
@@ -399,7 +355,7 @@ def _simplify_python_constraint(versions: sv.VersionList) -> None:
 
 
 def _eval_constraint(
-    node: tuple, version_lookup: JsonVersionsLookup
+    node: tuple, lookup: loading.PyPILookup
 ) -> Union[None, bool, List[spec.Spec]]:
     """Evaluate a environment marker (variable, operator, value).
 
@@ -484,7 +440,7 @@ def _eval_constraint(
         return None
 
     versions = _eval_python_version_marker(
-        variable.value, op.value, value.value, version_lookup
+        variable.value, op.value, value.value, lookup
     )
 
     if versions is None:
@@ -505,11 +461,11 @@ def _eval_constraint(
 
 
 def _eval_node(
-    node, version_lookup: JsonVersionsLookup
+    node, lookup: loading.PyPILookup
 ) -> Union[None, bool, List[spec.Spec]]:
     if isinstance(node, tuple):
-        return _eval_constraint(node, version_lookup)
-    return _do_evaluate_marker(node, version_lookup)
+        return _eval_constraint(node, lookup)
+    return _do_evaluate_marker(node, lookup)
 
 
 def _intersection(
@@ -571,7 +527,7 @@ def _eval_and(group: List, version_lookup):
 
 
 def _do_evaluate_marker(
-    node: list, version_lookup: JsonVersionsLookup
+    node: list, lookup: loading.PyPILookup
 ) -> Union[None, bool, List[spec.Spec]]:
     """Recursively try to evaluate a node (in the marker expression tree).
 
@@ -591,11 +547,11 @@ def _do_evaluate_marker(
         else:
             raise ValueError(f"unexpected operator {op}")
 
-    lhs: "bool | List[Any] | None" = _eval_and(groups[0], version_lookup)
+    lhs: "bool | List[Any] | None" = _eval_and(groups[0], lookup)
     if lhs is True:
         return True
     for group in groups[1:]:
-        rhs = _eval_and(group, version_lookup)
+        rhs = _eval_and(group, lookup)
         if rhs is True:
             return True
         elif lhs is None or rhs is None:
@@ -608,7 +564,7 @@ def _do_evaluate_marker(
 
 
 def evaluate_marker(
-    m: markers.Marker, version_lookup: JsonVersionsLookup
+    m: markers.Marker, lookup: loading.PyPILookup
 ) -> Union[bool, None, List[spec.Spec]]:
     """Evaluate a marker.
 
@@ -616,4 +572,4 @@ def evaluate_marker(
     constitute the when conditions, (2) statically as True or False given that
     we only support cpython, (3) None if we can't translate it into Spack DSL.
     """
-    return _do_evaluate_marker(m._markers, version_lookup)
+    return _do_evaluate_marker(m._markers, lookup)
