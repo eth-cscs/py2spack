@@ -7,7 +7,21 @@ name = "py2spack"
 authors = [{name = "davhofer", email = "davhofer@ethz.ch"}]
 readme = "README.md"
 license = {text = "MIT"}
-classifiers = ["License :: OSI Approved :: MIT License"]
+classifiers = [
+  "Development Status :: 2 - Pre-Alpha",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: System :: Archiving :: Packaging",
+  "Topic :: Utilities",
+  "Typing :: Typed",
+]
 dynamic = ["version", "description"]
 dependencies = [
     "packaging>=20", 
