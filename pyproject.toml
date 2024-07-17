@@ -153,11 +153,23 @@ ignore-overlong-task-comments = true
 max-doc-length = 88
 
 [tool.mypy]
+disallow_incomplete_defs = true
+disallow_untyped_defs = true
+files = ["src"]
+ignore_missing_imports = false
+implicit_optional = false
+implicit_reexport = false
+install_types = true
+namespace_packages = false
+# pretty = true
+python_version = "3.10"
+show_column_numbers = true
+show_error_codes = true
+warn_redundant_casts = true
 warn_return_any = true  
+warn_unreachable = true
 warn_unused_configs = true
-ignore_missing_imports = true
-check_untyped_defs = true
-warn_unreachable = true 
+warn_unused_ignores = true
 
 [tool.pytest.ini_options]
 minversion = "6.0"
