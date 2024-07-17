@@ -22,7 +22,8 @@ classifiers = [
   "Topic :: Utilities",
   "Typing :: Typed",
 ]
-dynamic = ["version", "description"]
+description = "Tool to create spack package definitions from distributable Python packages."
+dynamic = ["version"]
 dependencies = [
     "packaging>=20", 
     "requests>=2.30", 
