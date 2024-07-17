@@ -49,7 +49,7 @@ Home = "https://github.com/davhofer/py2spack/"
     "venv",
 ]
 
-line-length = 80
+line-length = 100
 indent-width = 4
 
 [tool.ruff.lint]
