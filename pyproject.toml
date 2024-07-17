@@ -71,7 +71,37 @@ src = ["src"]
 [tool.ruff.format]
 docstring-code-format = true
 [tool.ruff.lint]
-select = ["E", "F", "W", "B", "N", "D"]
+extend-safe-fixes = ["D", "TCH"]
+extend-select = [
+  "A",  # flake8-builtins
+  "B",  # flake8-bugbear
+  "I",  # isort
+  "G",  # flake8-logging-format
+  "N",  # pep8-naming
+  "W",  # pycodestyle-warning
+  "C4",  # flake8-comprehensions
+  "C90",  # mccabe
+  "D",  # pydocstyle
+  "D213",  # multi-line-summary-second-line (off by default in pydocstyle "google' convention)
+  "PT",  # flake8-pytest-style
+  "TD",  # flake8-todo
+  "UP",  # pyupgrade
+  "ARG",  # flake8-unused-arguments
+  "ERA",  # eradicate
+  "FLY",  # flynt
+  "ICN",  # flake8-import-conventions
+  "PERF",  # Perflint
+  "PGH",  # pygrep-hooks
+  "PIE",  # flake8-pie
+  "PL",  # pylint
+  "PTH",  # flake8-use-pathlib
+  "RET",  # flake8-return
+  "RUF",  # Ruff-specific
+  "SIM",  # flake8-simplify
+  "T10",  # flake8-debugger
+  "T20",  # flake8-print
+  "TCH",  # flake8-type-checking
+]
 ignore = []
 
 
