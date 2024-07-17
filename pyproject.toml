@@ -173,7 +173,7 @@ warn_unused_ignores = true
 
 [tool.pytest.ini_options]
 minversion = "6.0"
-addopts = "-ra -q"
+addopts = ["-ra", "--showlocals", "--strict-markers", "--strict-config"]
 testpaths = [
     "tests",
 ]
