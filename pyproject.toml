@@ -65,7 +65,11 @@ Home = "https://github.com/davhofer/py2spack/"
 ]
 
 line-length = 100
+show-fixes = true
+src = ["src"]
 
+[tool.ruff.format]
+docstring-code-format = true
 [tool.ruff.lint]
 select = ["E", "F", "W", "B", "N", "D"]
 ignore = []
