@@ -50,7 +50,6 @@ Home = "https://github.com/davhofer/py2spack/"
 ]
 
 line-length = 100
-indent-width = 4
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "B", "N", "D"]
