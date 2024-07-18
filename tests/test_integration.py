@@ -2,23 +2,34 @@
 
 import sys
 
-from py2spack import conversion_tools, main
+from py2spack import main, loading
 
 
-def test_e2e_uninterrupted():
-    pyprojects = []
-    name = "black"
-    for v in ["23.12.0", "23.12.1", "24.2.0", "24.4.0", "24.4.1", "24.4.2"]:
-        py_pkg = main.PyProject.from_toml(
-            f"tests/test_data/black/pyproject{v}.toml", name, v
-        )
+def test_e2e_uninterrupted1():
+    lookup = loading.PyPILookup()
+    spack_pkg = main.SpackPyPkg.convert_pkg("black", lookup, last_n_versions=5)
 
-        assert py_pkg is not None
+    assert spack_pkg is not None
 
-        pyprojects.append(py_pkg)
+    spack_pkg.print_package(outfile=sys.stdout)
 
-    lookup = conversion_tools.JsonVersionsLookup()
-    spack_pkg = main.SpackPyPkg.from_pyprojects(pyprojects, lookup)
+    assert True
+
+
+def test_e2e_uninterrupted2():
+    lookup = loading.PyPILookup()
+    spack_pkg = main.SpackPyPkg.convert_pkg("tqdm", lookup, last_n_versions=5)
+
+    assert spack_pkg is not None
+
+    spack_pkg.print_package(outfile=sys.stdout)
+
+    assert True
+
+
+def test_e2e_uninterrupted3():
+    lookup = loading.PyPILookup()
+    spack_pkg = main.SpackPyPkg.convert_pkg("pandas", lookup, last_n_versions=5)
 
     assert spack_pkg is not None
 

@@ -119,8 +119,12 @@ def test_get_requires_python():
     assert isinstance(requires_python, specifiers.SpecifierSet)
     assert str(requires_python) == ">=3.6"
     # Simulate invalid requires-python field
-    invalid_fetcher = parsing.DataFetcher({"project": {"requires-python": "invalid"}})
-    assert isinstance(invalid_fetcher.get_requires_python(), parsing.ConfigurationError)
+    invalid_fetcher = parsing.DataFetcher(
+        {"project": {"requires-python": "invalid"}}
+    )
+    assert isinstance(
+        invalid_fetcher.get_requires_python(), parsing.ConfigurationError
+    )
 
 
 def test_get_build_requires():

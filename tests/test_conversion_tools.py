@@ -3,7 +3,7 @@
 import pytest
 from packaging import markers, specifiers
 from packaging import version as pv
-from py2spack import conversion_tools
+from py2spack import conversion_tools, loading
 from spack import spec
 from spack import version as sv
 
@@ -263,7 +263,7 @@ def test_pkg_specifier_set_to_version_list(
     We use the package black, with versions limited to the range 22 <= v < 24
     for reproducibility even when black adds versions.
     """
-    lookup = conversion_tools.JsonVersionsLookup()
+    lookup = loading.PyPILookup()
 
     specifier_set &= specifiers.SpecifierSet(">=22")
     specifier_set &= specifiers.SpecifierSet("<24")
@@ -274,7 +274,9 @@ def test_pkg_specifier_set_to_version_list(
 
     sv_included = [sv.Version(v) for v in expect_included]
 
-    expect_excluded = list(filter(lambda x: x not in expect_included, BLACK_VERSIONS))
+    expect_excluded = list(
+        filter(lambda x: x not in expect_included, BLACK_VERSIONS)
+    )
     sv_excluded = [sv.Version(v) for v in expect_excluded]
 
     for v in sv_included:
@@ -304,11 +306,15 @@ def test_pkg_specifier_set_to_version_list(
         ),
         (markers.Marker("sys_platform != 'obscure_platform'"), True),
         (
-            markers.Marker("sys_platform == 'linux' or sys_platform == 'windows'"),
+            markers.Marker(
+                "sys_platform == 'linux' or sys_platform == 'windows'"
+            ),
             [spec.Spec("platform=linux"), spec.Spec("platform=windows")],
         ),
         (
-            markers.Marker("sys_platform != 'linux' and sys_platform != 'windows'"),
+            markers.Marker(
+                "sys_platform != 'linux' and sys_platform != 'windows'"
+            ),
             [
                 spec.Spec("platform=freebsd"),
                 spec.Spec("platform=cray"),
@@ -324,15 +330,21 @@ def test_pkg_specifier_set_to_version_list(
             [spec.Spec("^python@:3.8")],
         ),
         (
-            markers.Marker("python_full_version < '3.9' and python_version > '3.9'"),
+            markers.Marker(
+                "python_full_version < '3.9' and python_version > '3.9'"
+            ),
             False,
         ),
         (
-            markers.Marker("python_version >= '3.8' and sys_platform == 'linux'"),
+            markers.Marker(
+                "python_version >= '3.8' and sys_platform == 'linux'"
+            ),
             [spec.Spec("platform=linux ^python@3.8:")],
         ),
         (
-            markers.Marker("python_version >= '3.10' or sys_platform == 'windows'"),
+            markers.Marker(
+                "python_version >= '3.10' or sys_platform == 'windows'"
+            ),
             [spec.Spec("^python@3.10:"), spec.Spec("platform=windows")],
         ),
         (markers.Marker("extra == 'extension'"), [spec.Spec("+extension")]),
@@ -348,7 +360,7 @@ def test_pkg_specifier_set_to_version_list(
     ],
 )
 def test_evaluate_marker(marker, expected):
-    lookup = conversion_tools.JsonVersionsLookup()
+    lookup = loading.PyPILookup()
     result = conversion_tools.evaluate_marker(marker, lookup)
 
     if isinstance(expected, list):
