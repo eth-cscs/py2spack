@@ -4,7 +4,7 @@ import io
 import tarfile
 from typing import Any, Dict, List, Optional
 
-import requests  # type: ignore
+import requests
 import tomli
 from packaging import version as vn
 
@@ -48,7 +48,7 @@ class PyPILookup:
     due to its larger size and sparser usage.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize empty PyPILookup."""
         # cache for package name and corresponding version list
         self.version_cache: Dict[str, List[vn.Version]] = {}
@@ -97,7 +97,7 @@ class PyPILookup:
         return self.version_cache[name]
 
     def get_files(
-        self, name: str, last_n_versions=-1
+        self, name: str, last_n_versions: int = -1
     ) -> List[Dict[Any, Any]] | APIError:
         """Get metadata for available distribution files from PyPI.
 
@@ -112,9 +112,7 @@ class PyPILookup:
         files = data["files"]
 
         # for now we only support tarball archives like .tar.gz
-        files_known_format = [
-            f for f in files if _known_archive_format(f["filename"])
-        ]
+        files_known_format = [f for f in files if _known_archive_format(f["filename"])]
 
         if len(files_known_format) == 0:
             msg = (
@@ -163,9 +161,7 @@ class PyPILookup:
 
 
 def _parse_archive_extension(filename: str) -> str | APIError:
-    extension_list = [
-        ext for ext in KNOWN_ARCHIVE_FORMATS if filename.endswith(ext)
-    ]
+    extension_list = [ext for ext in KNOWN_ARCHIVE_FORMATS if filename.endswith(ext)]
 
     if len(extension_list) == 0:
         # we return an API error here because the filenames are obtained through
@@ -180,9 +176,7 @@ def _parse_archive_extension(filename: str) -> str | APIError:
     return longest_matching_ext
 
 
-def _parse_version(
-    filename: str, pkg_name: str, archive_ext: str
-) -> vn.Version | None:
+def _parse_version(filename: str, pkg_name: str, archive_ext: str) -> vn.Version | None:
     """Parse version from filename and check correct formatting."""
     prefix = pkg_name + "-"
     if not (filename.startswith(prefix) and filename.endswith(archive_ext)):
@@ -196,7 +190,7 @@ def _parse_version(
         return None
 
 
-def _known_archive_format(filename: str):
+def _known_archive_format(filename: str) -> bool:
     return any([filename.endswith(ext) for ext in KNOWN_ARCHIVE_FORMATS])
 
 
@@ -247,9 +241,7 @@ def _extract_from_tar(
 
 
 # TODO: handle zip archives
-def try_load_toml(
-    url: str, directory_name: str, archive_ext: str
-) -> dict | APIError:
+def try_load_toml(url: str, directory_name: str, archive_ext: str) -> dict | APIError:
     """Load sdist from url and extract pyproject.toml contents."""
     sdist_file_obj = _download_sdist(url)
     if isinstance(sdist_file_obj, APIError):
@@ -259,8 +251,7 @@ def try_load_toml(
         return _extract_from_tar(sdist_file_obj, directory_name)
 
     msg = (
-        "Failed to open sdist, format must be tarball archive (.tar.gz,"
-        " .bz2, etc.)"
+        "Failed to open sdist, format must be tarball archive (.tar.gz," " .bz2, etc.)"
     )
 
     return APIError(msg)

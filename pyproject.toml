@@ -70,6 +70,8 @@ src = ["src"]
 
 [tool.ruff.format]
 docstring-code-format = true
+skip-magic-trailing-commas = false 
+
 [tool.ruff.lint]
 extend-safe-fixes = ["D", "TCH"]
 extend-select = [
@@ -107,9 +109,6 @@ ignore = []
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"
-
-[tool.ruff.format]
-skip-magic-trailing-commas = false 
 
 [tool.ruff.lint.isort]
 combine-as-imports = true

@@ -5,14 +5,15 @@ The code is adapted from Spack/Harmen Stoppels: https://github.com/spack/pypi-to
 
 import re
 import sys
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
-import packaging.version as pv  # type: ignore
-import spack.error  # type: ignore
-import spack.parser  # type: ignore
-import spack.version as sv  # type: ignore
+import packaging.version as pv
+import spack.error
+import spack.parser
+import spack.version as sv
 from packaging import markers, specifiers
 from spack import spec
+
 from py2spack import loading
 
 # these python versions are not supported anymore, so we shouldn't need to
@@ -180,9 +181,7 @@ def packaging_to_spack_version(v: pv.Version) -> sv.StandardVersion:
 
     else:
         if v.post is not None:
-            release.extend(
-                (sv.version_types.VersionStrComponent("post"), v.post)
-            )
+            release.extend((sv.version_types.VersionStrComponent("post"), v.post))
             separators.extend((".", ""))
         if (
             v.dev is not None
@@ -191,9 +190,7 @@ def packaging_to_spack_version(v: pv.Version) -> sv.StandardVersion:
             separators.extend((".", ""))
         if v.local is not None:
             local_bits = [
-                int(i)
-                if i.isnumeric()
-                else sv.version_types.VersionStrComponent(i)
+                int(i) if i.isnumeric() else sv.version_types.VersionStrComponent(i)
                 for i in LOCAL_SEPARATORS_REGEX.split(v.local)
             ]
             release.extend(local_bits)
@@ -207,9 +204,7 @@ def packaging_to_spack_version(v: pv.Version) -> sv.StandardVersion:
     for i, rel in enumerate(release):
         string += f"{rel}{separators[i]}"
     if v.pre:
-        string += (
-            f"{sv.common.PRERELEASE_TO_STRING[prerelease[0]]}{prerelease[1]}"
-        )
+        string += f"{sv.common.PRERELEASE_TO_STRING[prerelease[0]]}{prerelease[1]}"
 
     spack_version = sv.StandardVersion(
         string, (tuple(release), tuple(prerelease)), separators
@@ -249,9 +244,7 @@ def condensed_version_list(
     # Sort in Spack's order, which should in principle coincide with
     # packaging's order, but may not in unforseen edge cases.
     subset = sorted(packaging_to_spack_version(v) for v in subset_filtered)
-    all_versions = sorted(
-        packaging_to_spack_version(v) for v in all_versions_filtered
-    )
+    all_versions = sorted(packaging_to_spack_version(v) for v in all_versions_filtered)
 
     if len(subset) == 0:
         return sv.VersionList([])
@@ -306,9 +299,7 @@ def pkg_specifier_set_to_version_list(
     else:
         all_versions = lookup.get_versions(pkg)
 
-    matching = [
-        s for s in all_versions if specifier_set.contains(s, prereleases=True)
-    ]
+    matching = [s for s in all_versions if specifier_set.contains(s, prereleases=True)]
     result = (
         sv.VersionList()
         if not matching
@@ -376,9 +367,7 @@ def _eval_constraint(
     variable, op, value = node
 
     # Flip the comparison if the value is on the left-hand side.
-    if isinstance(variable, markers.Value) and isinstance(
-        value, markers.Variable
-    ):
+    if isinstance(variable, markers.Value) and isinstance(value, markers.Variable):
         flipped_op = {
             ">": "<",
             "<": ">",
@@ -466,16 +455,14 @@ def _eval_constraint(
 
 
 def _eval_node(
-    node, lookup: loading.PyPILookup
+    node: Tuple | List, lookup: loading.PyPILookup
 ) -> Union[None, bool, List[spec.Spec]]:
     if isinstance(node, tuple):
         return _eval_constraint(node, lookup)
     return _do_evaluate_marker(node, lookup)
 
 
-def _intersection(
-    lhs: List[spec.Spec], rhs: List[spec.Spec]
-) -> List[spec.Spec]:
+def _intersection(lhs: List[spec.Spec], rhs: List[spec.Spec]) -> List[spec.Spec]:
     """Compute intersection of spec lists.
 
     Expand: (a or b) and (c or d) = (a and c) or (a and d) or (b and c) or
@@ -509,7 +496,9 @@ def _union(lhs: List[spec.Spec], rhs: List[spec.Spec]) -> List[spec.Spec]:
     return list(set(lhs + rhs))
 
 
-def _eval_and(group: List, version_lookup):
+def _eval_and(
+    group: List, version_lookup: loading.PyPILookup
+) -> bool | List[Any] | None:
     lhs = _eval_node(group[0], version_lookup)
     if lhs is False:
         return False
@@ -564,7 +553,7 @@ def _do_evaluate_marker(
         elif lhs is False:
             lhs = rhs
         elif rhs is not False:
-            lhs = _union(lhs, rhs)  # type: ignore
+            lhs = _union(lhs, rhs)
     return lhs
 
 

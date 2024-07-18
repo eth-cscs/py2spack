@@ -172,9 +172,7 @@ class DataFetcher:
     def get_optional_dependencies(
         self,
     ) -> (
-        tuple[
-            dict[str, list[requirements.Requirement]], list[ConfigurationError]
-        ]
+        tuple[dict[str, list[requirements.Requirement]], list[ConfigurationError]]
         | ConfigurationError
     ):
         """Parses the 'optional-dependencies' field."""
@@ -224,15 +222,11 @@ class DataFetcher:
                         f'(got "{req}")'
                     )
                     requirement_errors.append(
-                        ConfigurationError(
-                            msg, key="project.optional-dependencies"
-                        )
+                        ConfigurationError(msg, key="project.optional-dependencies")
                     )
                     continue
                 try:
-                    requirements_dict[extra].append(
-                        requirements.Requirement(req)
-                    )
+                    requirements_dict[extra].append(requirements.Requirement(req))
                 except requirements.InvalidRequirement:
                     msg = (
                         f'Field "project.optional-dependencies.{extra}" '
@@ -240,9 +234,7 @@ class DataFetcher:
                         f'"{req}"'
                     )
                     requirement_errors.append(
-                        ConfigurationError(
-                            msg, key="project.optional-dependencies"
-                        )
+                        ConfigurationError(msg, key="project.optional-dependencies")
                     )
                     continue
         return (dict(requirements_dict), requirement_errors)
@@ -277,9 +269,7 @@ class DataFetcher:
             for field in _license:
                 if field not in ("file", "text"):
                     msg = f'Unexpected field "project.license.{field}"'
-                    return ConfigurationError(
-                        msg, key=f"project.license.{field}"
-                    )
+                    return ConfigurationError(msg, key=f"project.license.{field}")
 
             filename = self.get_str("project.license.file")
             text = self.get_str("project.license.text")
@@ -348,9 +338,7 @@ class DataFetcher:
         parsed_requires_python = self.get_str("project.requires-python")
         if isinstance(parsed_requires_python, str):
             try:
-                requires_python = specifiers.SpecifierSet(
-                    parsed_requires_python
-                )
+                requires_python = specifiers.SpecifierSet(parsed_requires_python)
                 return requires_python
             except specifiers.InvalidSpecifier:
                 msg = (
@@ -423,11 +411,9 @@ class Readme(typing.NamedTuple):
     content_type: str
 
 
-def valid_pypi_name(name) -> bool:
+def valid_pypi_name(name: str) -> bool:
     """Checks whether 'name' is a valid pypi name."""
     return (
-        re.match(
-            r"^([A-Z0-9]|[A-Z0-9][A-Z0-9._-]*[A-Z0-9])$", name, re.IGNORECASE
-        )
+        re.match(r"^([A-Z0-9]|[A-Z0-9][A-Z0-9._-]*[A-Z0-9])$", name, re.IGNORECASE)
         is not None
     )
