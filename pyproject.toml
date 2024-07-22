@@ -70,7 +70,7 @@ src = ["src"]
 
 [tool.ruff.format]
 docstring-code-format = true
-skip-magic-trailing-commas = false 
+skip-magic-trailing-comma = false 
 
 [tool.ruff.lint]
 extend-safe-fixes = ["D", "TCH"]

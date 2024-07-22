@@ -1,16 +1,12 @@
 """Tests for conversion_tools.py module."""
+from __future__ import annotations
 
 import pytest
-from packaging import markers, specifiers
-from packaging import version as pv
-from py2spack import conversion_tools, loading
-from spack import spec
-from spack import version as sv
+from packaging import markers, requirements, specifiers, version as pv
+from spack import spec, version as sv
 
-# TODO:
-# def test_jsonversionslookup():
-#
-#     lookup = JsonVersionsLookup()
+from py2spack import conversion_tools, loading
+
 
 
 @pytest.mark.parametrize(
@@ -268,7 +264,7 @@ def test_pkg_specifier_set_to_version_list(
     specifier_set &= specifiers.SpecifierSet(">=22")
     specifier_set &= specifiers.SpecifierSet("<24")
 
-    result = conversion_tools.pkg_specifier_set_to_version_list(
+    result = conversion_tools._pkg_specifier_set_to_version_list(
         "black", specifier_set, lookup
     )
 
@@ -369,3 +365,106 @@ def test_evaluate_marker(marker, expected):
         expected = set(expected)
 
     assert result == expected
+
+@pytest.mark.parametrize(
+    "req, from_extra, expected",
+    [
+        (
+            requirements.Requirement("black>=24.2"),
+            None,
+            [(spec.Spec("py-black@24.2:"), spec.Spec())],
+        ),
+        (
+            requirements.Requirement("black>=24.2; extra == 'foo'"),
+            None,
+            [(spec.Spec("py-black@24.2:"), spec.Spec("+foo"))],
+        ),
+        (
+            requirements.Requirement("black[foo]>=24.2"),
+            None,
+            [(spec.Spec("py-black@24.2: +foo"), spec.Spec())],
+        ),
+        (
+            requirements.Requirement("black>=24.2"),
+            "extra",
+            [(spec.Spec("py-black@24.2:"), spec.Spec("+extra"))],
+        ),
+        (
+            requirements.Requirement("black>=24.2; python_version >= '3.8'"),
+            None,
+            [(spec.Spec("py-black@24.2:"), spec.Spec("^python@3.8:"))],
+        ),
+        (
+            requirements.Requirement(
+                "black>=24.2; python_version >= '3.8' and sys_platform =="
+                " 'linux'"
+            ),
+            "test",
+            [
+                (
+                    spec.Spec("py-black@24.2:"),
+                    spec.Spec("platform=linux +test ^python@3.8:"),
+                )
+            ],
+        ),
+        (
+            requirements.Requirement(
+                "black>=24.2; python_version >= '3.8' or sys_platform =="
+                " 'windows'"
+            ),
+            None,
+            [
+                (spec.Spec("py-black@24.2:"), spec.Spec("^python@3.8:")),
+                (spec.Spec("py-black@24.2:"), spec.Spec("platform=windows")),
+            ],
+        ),
+        (
+            requirements.Requirement("black>=24.2; sys_platform != 'darwin'"),
+            "extra",
+            [
+                (
+                    spec.Spec("py-black@24.2:"),
+                    spec.Spec("platform=linux +extra"),
+                ),
+                (
+                    spec.Spec("py-black@24.2:"),
+                    spec.Spec("platform=windows +extra"),
+                ),
+                (
+                    spec.Spec("py-black@24.2:"),
+                    spec.Spec("platform=freebsd +extra"),
+                ),
+                (
+                    spec.Spec("py-black@24.2:"),
+                    spec.Spec("platform=cray +extra"),
+                ),
+            ],
+        ),
+    ],
+)
+def test_convert_requirement(req, from_extra, expected):
+    lookup = loading.PyPILookup()
+    result = conversion_tools._convert_requirement(req, lookup, from_extra=from_extra)
+    assert set(result) == set(expected)
+
+
+def test_convert_requirement_invalid():
+    lookup = loading.PyPILookup()
+    result = conversion_tools._convert_requirement(
+        requirements.Requirement("black>=4.2,<4"), lookup
+    )
+    assert isinstance(result, conversion_tools.ConversionError)
+
+@pytest.mark.parametrize(
+    "name, expected",
+    [
+        ("python", "python"),
+        ("package", "py-package"),
+        ("special_custom-pkg", "py-special-custom-pkg"),
+        ("py-pkg", "py-pkg"),
+        ("py-cpuinfo", "py-py-cpuinfo"),
+    ],
+)
+def test_pkg_to_spack_name(name, expected):
+    assert conversion_tools.pkg_to_spack_name(name) == expected
+

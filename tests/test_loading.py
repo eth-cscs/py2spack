@@ -1,9 +1,12 @@
 """Tests for loading.py module."""
+from __future__ import annotations
+
+import io
 
 import pytest
-from py2spack import loading
 from packaging import version as pv
-import io
+
+from py2spack import loading
 
 
 @pytest.mark.parametrize(

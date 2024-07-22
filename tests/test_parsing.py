@@ -1,7 +1,10 @@
 """Tests for parsing.py module."""
+from __future__ import annotations
 
 from packaging import specifiers
+
 from py2spack import parsing
+
 
 data = {
     "project": {

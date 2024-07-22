@@ -1,8 +1,9 @@
 """Integration tests for py2spack package."""
+from __future__ import annotations
 
 import sys
 
-from py2spack import main, loading
+from py2spack import loading, main
 
 
 def test_e2e_uninterrupted1():
