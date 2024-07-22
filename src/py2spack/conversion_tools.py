@@ -464,7 +464,7 @@ def _eval_constraint(node: tuple, lookup: loading.PyPILookup) -> None | bool | l
         except (spack.parser.SpecSyntaxError, ValueError) as e:
             msg = f"could not parse `{value}` as variant: {e}"
             logging.warning(msg)
-        return None
+            return None
 
     return return_val
 
