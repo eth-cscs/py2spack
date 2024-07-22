@@ -6,13 +6,19 @@ Parts of the code adapted from https://github.com/pypa/pyproject-metadata.
 
 from __future__ import annotations
 
-import pathlib
 import re
 import typing
-from collections.abc import Mapping
-from typing import Any, List, Tuple
+from typing import Any
 
 from packaging import requirements, specifiers
+
+
+LICENSE_IDENTIFIER_LEN = 250
+
+
+if typing.TYPE_CHECKING:
+    import pathlib
+    from collections.abc import Mapping
 
 
 class ConfigurationError(Exception):
@@ -27,6 +33,13 @@ class ConfigurationError(Exception):
     def key(self) -> str | None:  # pragma: no cover
         """Get key."""
         return self._key
+
+
+def _validate_license_txt(license_text: str) -> str | ConfigurationError:
+    if len(license_text) > LICENSE_IDENTIFIER_LEN:
+        msg = "License text appears to be full license content instead of " "license identifier"
+        return ConfigurationError(msg, key="project.license")
+    return license_text
 
 
 class DataFetcher:
@@ -66,10 +79,7 @@ class DataFetcher:
         try:
             val = self.get(key)
             if not isinstance(val, str):
-                msg = (
-                    f'Field "{key}" has an invalid type, '
-                    f'expecting a string (got "{val}")'
-                )
+                msg = f'Field "{key}" has an invalid type, ' f'expecting a string (got "{val}")'
                 return ConfigurationError(msg, key=key)
             return val
         except KeyError:
@@ -117,9 +127,7 @@ class DataFetcher:
         except KeyError:
             return {}
 
-    def get_people(
-        self, key: str
-    ) -> list[tuple[str | None, str | None]] | ConfigurationError:
+    def get_people(self, key: str) -> list[tuple[str | None, str | None]] | ConfigurationError:
         """Used for parsing the 'authors' and 'maintainers' fields."""
         try:
             val = self.get(key)
@@ -144,10 +152,7 @@ class DataFetcher:
 
     def get_dependencies(
         self,
-    ) -> (
-        tuple[list[requirements.Requirement], list[ConfigurationError]]
-        | ConfigurationError
-    ):
+    ) -> tuple[list[requirements.Requirement], list[ConfigurationError]] | ConfigurationError:
         """Parses the 'dependencies' field."""
         requirement_strings = self.get_list("project.dependencies")
 
@@ -157,16 +162,16 @@ class DataFetcher:
         requirements_list: list[requirements.Requirement] = []
         requirement_errors: list[ConfigurationError] = []
         for req in requirement_strings:
+            # TODO @davhofer: the requirements here of course SHOULD be formatted correctly...  # noqa: TD003
+            # but what if they are not
             try:
                 requirements_list.append(requirements.Requirement(req))
-            except requirements.InvalidRequirement:
+            except requirements.InvalidRequirement:  # noqa: PERF203
                 msg = (
                     'Field "project.dependencies" contains an invalid PEP 508 '
                     f'requirement string "{req}"'
                 )
-                requirement_errors.append(
-                    ConfigurationError(msg, key="project.dependencies")
-                )
+                requirement_errors.append(ConfigurationError(msg, key="project.dependencies"))
         return (requirements_list, requirement_errors)
 
     def get_optional_dependencies(
@@ -265,51 +270,20 @@ class DataFetcher:
         _license = self.get_dict("project.license")
         license_str = self.get_str("project.license")
 
-        if isinstance(_license, dict):
-            for field in _license:
-                if field not in ("file", "text"):
-                    msg = f'Unexpected field "project.license.{field}"'
-                    return ConfigurationError(msg, key=f"project.license.{field}")
-
-            filename = self.get_str("project.license.file")
-            text = self.get_str("project.license.text")
-
-            if isinstance(filename, str):
-                msg = "Parsing license from file not supported"
-                return ConfigurationError(msg, key="project.license")
-                # file = project_dir.joinpath(filename)
-                # if not file.is_file():
-                #    msg = f'License file not found ("{filename}")'
-                #     return ConfigurationError(msg, key="project.license.file")
-                # text = file.read_text(encoding="utf-8")
-
-            if isinstance(text, ConfigurationError):
-                return text
-
-            if text is None:
-                msg = (
-                    "Invalid 'project.license.text' value, expecting string "
-                    "(got None)"
-                )
-                return ConfigurationError(msg, key="project.license")
-
-            license_text = text
-
-        elif isinstance(license_str, str):
+        license_text = ""
+        if isinstance(license_str, str):
             license_text = license_str
 
-        elif isinstance(_license, ConfigurationError):
-            return _license
+        elif isinstance(_license, dict):
+            text = self.get_str("project.license.text")
 
-        # manual checking of license format & text
-        if len(license_text) > 250:
-            msg = (
-                "License text appears to be full license content instead of "
-                "license identifier"
-            )
-            return ConfigurationError(msg, key="project.license")
+            if isinstance(text, str):
+                license_text = text
 
-        return license_text
+        if license_text:
+            return _validate_license_txt(license_text)
+
+        return ConfigurationError('Unable to get license text from "project.license" field')
 
     def _get_license_from_classifiers(self) -> str | None:
         """Parses the 'classifiers' field, tries to exract license from it."""
@@ -317,18 +291,13 @@ class DataFetcher:
         classifiers = self.get_list("project.classifiers")
         if isinstance(classifiers, list):
             # get all classifiers detailing licenses
-            license_classifiers = list(
-                filter(lambda x: x.startswith("License"), classifiers)
-            )
+            license_classifiers = list(filter(lambda x: x.startswith("License"), classifiers))
             # for each license classifier, split by "::" and take the
             # last substring (and strip unnecessary whitespace)
-            licenses = list(
-                map(lambda x: x.split("::")[-1].strip(), license_classifiers)
-            )
+            licenses = [x.split("::")[-1].strip() for x in license_classifiers]
             if len(licenses) > 0:
                 # AND is more restrictive => be safe (?)
-                license_text = " AND ".join(licenses)
-                return license_text
+                return " AND ".join(licenses)
         return None
 
     def get_requires_python(
@@ -338,8 +307,7 @@ class DataFetcher:
         parsed_requires_python = self.get_str("project.requires-python")
         if isinstance(parsed_requires_python, str):
             try:
-                requires_python = specifiers.SpecifierSet(parsed_requires_python)
-                return requires_python
+                return specifiers.SpecifierSet(parsed_requires_python)
             except specifiers.InvalidSpecifier:
                 msg = (
                     'Field "project.requires-python" contains an invalid PEP '
@@ -352,10 +320,7 @@ class DataFetcher:
 
     def get_build_requires(
         self,
-    ) -> (
-        Tuple[List[requirements.Requirement], List[ConfigurationError]]
-        | ConfigurationError
-    ):
+    ) -> tuple[list[requirements.Requirement], list[ConfigurationError]] | ConfigurationError:
         """Parses the 'build-system.requires' field."""
         requirement_strings = self.get_list("build-system.requires")
 
@@ -367,20 +332,17 @@ class DataFetcher:
         for req in requirement_strings:
             try:
                 requirements_list.append(requirements.Requirement(req))
-            except requirements.InvalidRequirement as e:
+            except requirements.InvalidRequirement as e:  # noqa: PERF203
                 msg = (
                     'Field "build-system.requires" contains an invalid PEP 508 '
                     f'requirement string "{req}" ("{e}")'
                 )
-                requirement_errors.append(
-                    ConfigurationError(msg, key="build-system.requires")
-                )
+                requirement_errors.append(ConfigurationError(msg, key="build-system.requires"))
         return (requirements_list, requirement_errors)
 
     def get_build_backend(self) -> str | None | ConfigurationError:
         """Parses the 'build-system.build-backend' field."""
-        build_backend = self.get_str("build-system.build-backend")
-        return build_backend
+        return self.get_str("build-system.build-backend")
 
     def get_homepage(self) -> str | None | ConfigurationError:
         """Parses the 'urls' field and tries to extract the homepage."""
@@ -413,7 +375,4 @@ class Readme(typing.NamedTuple):
 
 def valid_pypi_name(name: str) -> bool:
     """Checks whether 'name' is a valid pypi name."""
-    return (
-        re.match(r"^([A-Z0-9]|[A-Z0-9][A-Z0-9._-]*[A-Z0-9])$", name, re.IGNORECASE)
-        is not None
-    )
+    return re.match(r"^([A-Z0-9]|[A-Z0-9][A-Z0-9._-]*[A-Z0-9])$", name, re.IGNORECASE) is not None

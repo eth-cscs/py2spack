@@ -1,12 +1,15 @@
 """Utils for downloading packages from PyPI and opening the pyproject.tomls."""
 
+from __future__ import annotations
+
 import io
 import tarfile
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import requests
 import tomli
 from packaging import version as vn
+
 
 KNOWN_ARCHIVE_FORMATS = [
     ".tar",
@@ -16,6 +19,9 @@ KNOWN_ARCHIVE_FORMATS = [
     ".xz",
     ".bz2",
 ]
+
+HTTP_STATUS_SUCCESS = 200
+HTTP_STATUS_NOT_FOUND = 404
 
 
 class APIError(Exception):
@@ -29,7 +35,7 @@ class APIError(Exception):
         super().__init__(msg)
 
 
-def _acceptable_version(version: str) -> Optional[vn.Version]:
+def _acceptable_version(version: str) -> vn.Version | None:
     """Check whether version string can be parsed and has correct format."""
     try:
         v = vn.parse(version)
@@ -51,7 +57,7 @@ class PyPILookup:
     def __init__(self) -> None:
         """Initialize empty PyPILookup."""
         # cache for package name and corresponding version list
-        self.version_cache: Dict[str, List[vn.Version]] = {}
+        self.version_cache: dict[str, list[vn.Version]] = {}
 
     def _get(self, name: str) -> dict | APIError:
         """Load info for the available distribution files from PyPI.
@@ -63,8 +69,8 @@ class PyPILookup:
             headers={"Accept": "application/vnd.pypi.simple.v1+json"},
             timeout=10,
         )
-        if r.status_code != 200:
-            if r.status_code == 404:
+        if r.status_code != HTTP_STATUS_SUCCESS:
+            if r.status_code == HTTP_STATUS_NOT_FOUND:
                 msg = f"Package {name} not found on PyPI (status code 404)"
                 return APIError(msg)
 
@@ -78,15 +84,13 @@ class PyPILookup:
         versions = data["versions"]
 
         # parse and sort versions
-        parsed_versions = sorted(
-            {vv for v in versions if (vv := _acceptable_version(v))}
-        )
+        parsed_versions = sorted({vv for v in versions if (vv := _acceptable_version(v))})
 
         self.version_cache[name] = parsed_versions
 
         return data
 
-    def get_versions(self, name: str) -> List[vn.Version]:
+    def get_versions(self, name: str) -> list[vn.Version]:
         """Get acceptable versions for package (from cache if possible)."""
         if name not in self.version_cache:
             data = self._get(name)
@@ -96,9 +100,7 @@ class PyPILookup:
 
         return self.version_cache[name]
 
-    def get_files(
-        self, name: str, last_n_versions: int = -1
-    ) -> List[Dict[Any, Any]] | APIError:
+    def get_files(self, name: str, last_n_versions: int = -1) -> list[dict[Any, Any]] | APIError:
         """Get metadata for available distribution files from PyPI.
 
         Returns:
@@ -122,8 +124,8 @@ class PyPILookup:
             return APIError(msg)
 
         # for each file, get the filename, url, version, extension, and sha256
-        # TODO: in case of an error, skip the file or return the error?
-        files_parsed: List[Dict[str, str]] = []
+        # TODO @davhofer: in case of an error, skip the file or return the error?  # noqa: TD003
+        files_parsed: list[dict[str, str]] = []
         for f in files_known_format:
             filename = f["filename"]
             archive_ext = _parse_archive_extension(filename)
@@ -172,8 +174,7 @@ def _parse_archive_extension(filename: str) -> str | APIError:
     if len(extension_list) == 1:
         return extension_list[0]
     # get the longest matching extension, e.g. .tar.gz instead of .gz
-    longest_matching_ext = max(extension_list, key=len)
-    return longest_matching_ext
+    return max(extension_list, key=len)
 
 
 def _parse_version(filename: str, pkg_name: str, archive_ext: str) -> vn.Version | None:
@@ -191,27 +192,21 @@ def _parse_version(filename: str, pkg_name: str, archive_ext: str) -> vn.Version
 
 
 def _known_archive_format(filename: str) -> bool:
-    return any([filename.endswith(ext) for ext in KNOWN_ARCHIVE_FORMATS])
+    return any(filename.endswith(ext) for ext in KNOWN_ARCHIVE_FORMATS)
 
 
 def _download_sdist(url: str) -> io.BytesIO | APIError:
     """Download source distribution from url as BytesIO object (in memory)."""
     response = requests.get(url)
-    if response.status_code == 200:
-        file_like_object = io.BytesIO(response.content)
-        return file_like_object
-    else:
-        filename = url.split("/")[-1]
-        msg = (
-            f"Failed to download sdist {filename},"
-            f" status code: {response.status_code}"
-        )
-        return APIError(msg)
+    if response.status_code == HTTP_STATUS_SUCCESS:
+        return io.BytesIO(response.content)
+
+    filename = url.split("/")[-1]
+    msg = f"Failed to download sdist {filename}," f" status code: {response.status_code}"
+    return APIError(msg)
 
 
-def _extract_from_tar(
-    file_like_object: io.BytesIO, directory_name: str
-) -> dict | APIError:
+def _extract_from_tar(file_like_object: io.BytesIO, directory_name: str) -> dict | APIError:
     """Extract pyproject.toml from tar archive.
 
     The top level directory name inside the archive must be given explicitly.
@@ -225,22 +220,16 @@ def _extract_from_tar(
 
             if f is not None:
                 pyproject_content = f.read().decode("utf-8")
-                pyproject_data = tomli.loads(pyproject_content)
-                return pyproject_data
-    except (
-        tarfile.TarError,
-        IOError,
-        UnicodeDecodeError,
-        tomli.TOMLDecodeError,
-        KeyError,
-    ) as e:
+                return tomli.loads(pyproject_content)
+
+    except (OSError, tarfile.TarError, UnicodeDecodeError, tomli.TOMLDecodeError, KeyError) as e:
         msg = f"Exception {type(e)}: {e}"
         return APIError(msg)
 
     return APIError("Could not extract pyproject.toml from sdist")
 
 
-# TODO: handle zip archives
+# TODO @davhofer: handle zip archives  # noqa: TD003
 def try_load_toml(url: str, directory_name: str, archive_ext: str) -> dict | APIError:
     """Load sdist from url and extract pyproject.toml contents."""
     sdist_file_obj = _download_sdist(url)
@@ -250,8 +239,6 @@ def try_load_toml(url: str, directory_name: str, archive_ext: str) -> dict | API
     if archive_ext in KNOWN_ARCHIVE_FORMATS:
         return _extract_from_tar(sdist_file_obj, directory_name)
 
-    msg = (
-        "Failed to open sdist, format must be tarball archive (.tar.gz," " .bz2, etc.)"
-    )
+    msg = "Failed to open sdist, format must be tarball archive (.tar.gz," " .bz2, etc.)"
 
     return APIError(msg)

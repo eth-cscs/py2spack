@@ -1,20 +1,25 @@
 """Utilities for converting packaging requirements to Spack dependency specs.
 
-The code is adapted from Spack/Harmen Stoppels: https://github.com/spack/pypi-to-spack-package.
+Parts of the code are adapted from Spack/Harmen Stoppels: https://github.com/spack/pypi-to-spack-package.
 """
 
+from __future__ import annotations
+
+import logging
 import re
-import sys
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any
 
 import packaging.version as pv
 import spack.error
 import spack.parser
-import spack.version as sv
-from packaging import markers, specifiers
-from spack import spec
+from packaging import markers, requirements, specifiers
+from spack import spec, version as sv
+from spack.util import naming
 
-from py2spack import loading
+
+if TYPE_CHECKING:
+    from py2spack import loading
+
 
 # these python versions are not supported anymore, so we shouldn't need to
 # consider them
@@ -38,11 +43,31 @@ KNOWN_PYTHON_VERSIONS = (
     (4, 0, 0),
 )
 
-# TODO: integrate this into a datastructure, omit mutable global state
-evalled: Dict = dict()
+
+class ConversionError(Exception):
+    """Error while converting a packaging requirement to spack."""
+
+    def __init__(
+        self,
+        msg: str,
+        *,
+        requirement: str | None = None,
+    ):
+        """Initialize error."""
+        super().__init__(msg)
+        self._requirement = requirement
+
+    @property
+    def requirement(self) -> str | None:
+        """Get requirement."""
+        return self._requirement
 
 
-def acceptable_version(version: str) -> Optional[pv.Version]:
+# TODO @davhofer: integrate this into a datastructure, omit mutable global state  # noqa: TD003
+evalled: dict = {}
+
+
+def acceptable_version(version: str) -> pv.Version | None:
     """Check whether version string can be parsed and has correct format."""
     try:
         v = pv.parse(version)
@@ -54,17 +79,12 @@ def acceptable_version(version: str) -> Optional[pv.Version]:
         return None
 
 
-def _get_python_versions() -> List[pv.Version]:
+def _get_python_versions() -> list[pv.Version]:
     """Statically evaluate python versions."""
-    return [
-        pv.Version(f"{major}.{minor}.{patch}")
-        for major, minor, patch in KNOWN_PYTHON_VERSIONS
-    ]
+    return [pv.Version(f"{major}.{minor}.{patch}") for major, minor, patch in KNOWN_PYTHON_VERSIONS]
 
 
-def _best_upperbound(
-    curr: sv.StandardVersion, nxt: sv.StandardVersion
-) -> sv.StandardVersion:
+def _best_upperbound(curr: sv.StandardVersion, nxt: sv.StandardVersion) -> sv.StandardVersion:
     """Return the most general upper bound that includes curr but not nxt.
 
     Invariant is that curr < nxt. Here, "most general" means the differentiation
@@ -87,18 +107,14 @@ def _best_upperbound(
         release += (0,) * ldiff
         seperators = (".",) * (len(release) - 1) + ("",)
         as_str = ".".join(str(x) for x in release)
-        return sv.StandardVersion(
-            as_str, (tuple(release), (sv.common.FINAL,)), seperators
-        )
-    elif i == m:
+        return sv.StandardVersion(as_str, (tuple(release), (sv.common.FINAL,)), seperators)
+    if i == m:
         return curr  # include pre-release of curr
-    else:
-        return curr.up_to(i + 1)
+
+    return curr.up_to(i + 1)
 
 
-def _best_lowerbound(
-    prev: sv.StandardVersion, curr: sv.StandardVersion
-) -> sv.StandardVersion:
+def _best_lowerbound(prev: sv.StandardVersion, curr: sv.StandardVersion) -> sv.StandardVersion:
     """Return the most general lower bound that includes curr but not prev.
 
     Invariant is that prev < curr. Counterpart to _best_upperbound().
@@ -154,11 +170,12 @@ def _best_lowerbound(
 
 def packaging_to_spack_version(v: pv.Version) -> sv.StandardVersion:
     """Convert packaging version to equivalent spack version."""
-    # TODO: better epoch support.
+    # TODO @davhofer: better epoch support.  # noqa: TD003
     release = []
     prerelease = [sv.common.FINAL]
     if v.epoch > 0:
-        print(f"warning: epoch {v} isn't really supported", file=sys.stderr)
+        msg = f"warning: epoch {v} isn't really supported"
+        logging.warning(msg)
         release.append(v.epoch)
     release.extend(v.release)
     separators = ["."] * (len(release) - 1)
@@ -174,18 +191,14 @@ def packaging_to_spack_version(v: pv.Version) -> sv.StandardVersion:
         separators.extend(("-", ""))
 
         if v.post or v.dev or v.local:
-            print(
-                f"warning: ignoring post / dev / local version {v}",
-                file=sys.stderr,
-            )
+            msg = f"warning: ignoring post / dev / local version {v}"
+            logging.warning(msg)
 
     else:
         if v.post is not None:
             release.extend((sv.version_types.VersionStrComponent("post"), v.post))
             separators.extend((".", ""))
-        if (
-            v.dev is not None
-        ):  # dev is actually pre-release like, spack makes it a post-release.
+        if v.dev is not None:  # dev is actually pre-release like, spack makes it a post-release.
             release.extend((sv.version_types.VersionStrComponent("dev"), v.dev))
             separators.extend((".", ""))
         if v.local is not None:
@@ -206,11 +219,7 @@ def packaging_to_spack_version(v: pv.Version) -> sv.StandardVersion:
     if v.pre:
         string += f"{sv.common.PRERELEASE_TO_STRING[prerelease[0]]}{prerelease[1]}"
 
-    spack_version = sv.StandardVersion(
-        string, (tuple(release), tuple(prerelease)), separators
-    )
-
-    return spack_version
+    return sv.StandardVersion(string, (tuple(release), tuple(prerelease)), separators)
 
 
 def _version_type_supported(version: pv.Version) -> bool:
@@ -223,23 +232,23 @@ def _version_type_supported(version: pv.Version) -> bool:
 
 
 def condensed_version_list(
-    _subset_of_versions: List[pv.Version], _all_versions: List[pv.Version]
+    _subset_of_versions: list[pv.Version], _all_versions: list[pv.Version]
 ) -> sv.VersionList:
     """Create condensed list of version ranges equivalent to version subset."""
     # for now, don't support prereleases etc.
     subset_filtered = list(filter(_version_type_supported, _subset_of_versions))
     all_versions_filtered = list(filter(_version_type_supported, _all_versions))
 
-    if len(subset_filtered) < len(_subset_of_versions) or len(
-        all_versions_filtered
-    ) < len(_all_versions):
-        # TODO: this msg is displayed 100s of times. move it somewhere else and
+    if len(subset_filtered) < len(_subset_of_versions) or len(all_versions_filtered) < len(
+        _all_versions
+    ):
+        # TODO @davhofer: this msg is displayed 100s of times. move it somewhere else and  # noqa: TD003
         # display it only once
-        print(
-            "Prereleases as well as post, dev, and local versions are not ",
-            "supported and will be excluded!",
-            file=sys.stderr,
+        msg = (
+            "Prereleases as well as post, dev, and local versions are not "
+            "supported and will be excluded!"
         )
+        logging.warning(msg)
 
     # Sort in Spack's order, which should in principle coincide with
     # packaging's order, but may not in unforseen edge cases.
@@ -251,7 +260,7 @@ def condensed_version_list(
 
     # Find corresponding index
     i, j = all_versions.index(subset[0]) + 1, 1
-    new_versions: List[sv.ClosedOpenRange] = []
+    new_versions: list[sv.ClosedOpenRange] = []
 
     # If the first when entry corresponds to the first known version, use
     # (-inf, ..] as lowerbound.
@@ -278,41 +287,32 @@ def condensed_version_list(
 
     new_versions.append(sv.VersionRange(lo, hi))
 
-    vlist = sv.VersionList(new_versions)
-
-    return vlist
+    return sv.VersionList(new_versions)
 
 
-def pkg_specifier_set_to_version_list(
+def _pkg_specifier_set_to_version_list(
     pkg: str,
     specifier_set: specifiers.SpecifierSet,
     lookup: loading.PyPILookup,
 ) -> sv.VersionList:
     """Convert the specifier set to an equivalent list of version ranges."""
-    # TODO: improve how & where the caching is done?
+    # TODO @davhofer: improve how & where the caching is done?  # noqa: TD003
     key = (pkg, specifier_set)
     if key in evalled:
         return evalled[key]
 
-    if pkg == "python":
-        all_versions = _get_python_versions()
-    else:
-        all_versions = lookup.get_versions(pkg)
+    all_versions = _get_python_versions() if pkg == "python" else lookup.get_versions(pkg)
 
     matching = [s for s in all_versions if specifier_set.contains(s, prereleases=True)]
-    result = (
-        sv.VersionList()
-        if not matching
-        else condensed_version_list(matching, all_versions)
-    )
+    result = sv.VersionList() if not matching else condensed_version_list(matching, all_versions)
     evalled[key] = result
     return result
 
 
 def _eval_python_version_marker(
-    variable: str, op: str, value: str, lookup: loading.PyPILookup
-) -> Optional[sv.VersionList]:
-    # TODO: there might be still some bug caused by python_version vs
+    op: str, value: str, lookup: loading.PyPILookup
+) -> sv.VersionList | None:
+    # TODO @davhofer: there might be still some bug caused by python_version vs  # noqa: TD003
     # python_full_version differences.
     # Also `in` and `not in` are allowed, but difficult to get right. They take
     # the rhs as a string and do string matching instead of version parsing...
@@ -323,10 +323,11 @@ def _eval_python_version_marker(
     try:
         specifier = specifiers.SpecifierSet(f"{op}{value}")
     except specifiers.InvalidSpecifier:
-        print(f"could not parse `{op}{value}` as specifier", file=sys.stderr)
+        msg = f"could not parse `{op}{value}` as specifier"
+        logging.warning(msg)
         return None
 
-    return pkg_specifier_set_to_version_list("python", specifier, lookup)
+    return _pkg_specifier_set_to_version_list("python", specifier, lookup)
 
 
 def _simplify_python_constraint(versions: sv.VersionList) -> None:
@@ -350,9 +351,61 @@ def _simplify_python_constraint(versions: sv.VersionList) -> None:
         vs[0] = union
 
 
-def _eval_constraint(
+def _eval_platform_constraint(node: tuple) -> bool | list[spec.Spec] | None:
+    platforms = ("linux", "cray", "darwin", "windows", "freebsd")
+
+    variable, op, value = node
+
+    assert variable.value in {"platform_system", "sys_platform"}
+
+    if op.value not in {"==", "!="}:
+        return None
+
+    platform = value.value.lower()
+    if platform == "win32":
+        platform = "windows"
+    elif platform == "linux2":
+        platform = "linux"
+
+    if platform in platforms:
+        return [
+            spec.Spec(f"platform={p}")
+            for p in platforms
+            if (p != platform and op.value == "!=") or (p == platform and op.value == "==")
+        ]
+    # TODO @davhofer: NOTE: in the case of != above, this will return a list of  # noqa: TD003
+    # [platform=windows, platform=linux, ...] => this means it is an OR of
+    # the list... is this always the case? handled correctly?
+
+    # we don't support it, so statically true/false.
+    return bool(op.value == "!=")
+
+
+def _eval_python_constraint(
     node: tuple, lookup: loading.PyPILookup
-) -> Union[None, bool, List[spec.Spec]]:
+) -> bool | list[spec.Spec] | None:
+    variable, op, value = node
+    versions = _eval_python_version_marker(op.value, value.value, lookup)
+
+    if versions is not None:
+        _simplify_python_constraint(versions)
+
+        if not versions:
+            # No supported versions for python remain, so statically false.
+            return False
+
+        if versions == sv.any_version:
+            # No constraints on python, so statically true.
+            return True
+
+        sp = spec.Spec("^python")
+        sp.dependencies("python")[0].versions = versions
+        return [sp]
+
+    return None
+
+
+def _eval_constraint(node: tuple, lookup: loading.PyPILookup) -> None | bool | list[spec.Spec]:
     """Evaluate a environment marker (variable, operator, value).
 
     Returns:
@@ -360,7 +413,7 @@ def _eval_constraint(
         True/False: If constraint is statically true or false.
         List of specs: Spack representation of the constraint(s).
     """
-    # TODO: os_name, platform_machine, platform_release, platform_version,
+    # TODO @davhofer: os_name, platform_machine, platform_release, platform_version,  # noqa: TD003
     # implementation_version
 
     # Operator
@@ -378,97 +431,57 @@ def _eval_constraint(
             "~=": "~=",
         }.get(op.value)
         if flipped_op is None:
-            print(f"do not know how to evaluate `{node}`", file=sys.stderr)
+            msg = f"do not know how to evaluate `{node}`"
+            logging.warning(msg)
             return None
         variable, op, value = value, markers.Op(flipped_op), variable
 
-    # print(f"EVAL MARKER {variable.value} {op.value} '{value.value}'")
+    return_val: bool | list[spec.Spec] | None = None
 
     # Statically evaluate implementation name, since all we support is cpython
-    if (
-        variable.value == "implementation_name"
-        or variable.value == "platform_python_implementation"
-    ):
+    if variable.value in {"implementation_name", "platform_python_implementation"}:
         if op.value == "==":
-            return bool(value.value.lower() == "cpython")
-        elif op.value == "!=":
-            return bool(value.value.lower() != "cpython")
-        return None
+            return_val = bool(value.value.lower() == "cpython")
 
-    platforms = ("linux", "cray", "darwin", "windows", "freebsd")
+        if op.value == "!=":
+            return_val = bool(value.value.lower() != "cpython")
 
-    if (
-        variable.value == "platform_system" or variable.value == "sys_platform"
-    ) and op.value in ("==", "!="):
-        platform = value.value.lower()
-        if platform == "win32":
-            platform = "windows"
-        elif platform == "linux2":
-            platform = "linux"
+    elif variable.value in {"platform_system", "sys_platform"}:
+        return_val = _eval_platform_constraint(node)
 
-        if platform in platforms:
-            return [
-                spec.Spec(f"platform={p}")
-                for p in platforms
-                if (p != platform and op.value == "!=")
-                or (p == platform and op.value == "==")
-            ]
-        # TODO: NOTE: in the case of != above, this will return a list of
-        # [platform=windows, platform=linux, ...] => this means it is an OR of
-        # the list... is this always the case? handled correctly?
+    elif variable.value in ("python_version", "python_full_version"):
+        return_val = _eval_python_constraint(node, lookup)
 
-        # we don't support it, so statically true/false.
-        return bool(op.value == "!=")
-    try:
-        if variable.value == "extra":
-            if op.value == "==":
-                return [spec.Spec(f"+{value.value}")]
-            elif op.value == "!=":
-                return [spec.Spec(f"~{value.value}")]
-    except (spack.parser.SpecSyntaxError, ValueError) as e:
-        print(f"could not parse `{value}` as variant: {e}", file=sys.stderr)
-        return None
-
-    # Otherwise we only know how to handle constraints on the Python version.
-    if variable.value not in ("python_version", "python_full_version"):
-        return None
-
-    versions = _eval_python_version_marker(
-        variable.value, op.value, value.value, lookup
-    )
-
-    if versions is None:
-        return None
-
-    _simplify_python_constraint(versions)
-
-    if not versions:
-        # No supported versions for python remain, so statically false.
-        return False
-    elif versions == sv.any_version:
-        # No constraints on python, so statically true.
-        return True
     else:
-        sp = spec.Spec("^python")
-        sp.dependencies("python")[0].versions = versions
-        return [sp]
+        try:
+            if variable.value == "extra":
+                if op.value == "==":
+                    return_val = [spec.Spec(f"+{value.value}")]
+
+                if op.value == "!=":
+                    return_val = [spec.Spec(f"~{value.value}")]
+
+        except (spack.parser.SpecSyntaxError, ValueError) as e:
+            msg = f"could not parse `{value}` as variant: {e}"
+            logging.warning(msg)
+        return None
+
+    return return_val
 
 
-def _eval_node(
-    node: Tuple | List, lookup: loading.PyPILookup
-) -> Union[None, bool, List[spec.Spec]]:
+def _eval_node(node: tuple | list, lookup: loading.PyPILookup) -> None | bool | list[spec.Spec]:
     if isinstance(node, tuple):
         return _eval_constraint(node, lookup)
     return _do_evaluate_marker(node, lookup)
 
 
-def _intersection(lhs: List[spec.Spec], rhs: List[spec.Spec]) -> List[spec.Spec]:
+def _intersection(lhs: list[spec.Spec], rhs: list[spec.Spec]) -> list[spec.Spec]:
     """Compute intersection of spec lists.
 
     Expand: (a or b) and (c or d) = (a and c) or (a and d) or (b and c) or
     (b and d) where `and` is spec intersection.
     """
-    specs: List[spec.Spec] = []
+    specs: list[spec.Spec] = []
     for expr in lhs:
         for r in rhs:
             intersection = expr.copy()
@@ -481,7 +494,7 @@ def _intersection(lhs: List[spec.Spec], rhs: List[spec.Spec]) -> List[spec.Spec]
     return list(set(specs))
 
 
-def _union(lhs: List[spec.Spec], rhs: List[spec.Spec]) -> List[spec.Spec]:
+def _union(lhs: list[spec.Spec], rhs: list[spec.Spec]) -> list[spec.Spec]:
     """Compute union of spec lists.
 
     This case is trivial: (a or b) or (c or d) = a or b or c or d, BUT do a
@@ -496,9 +509,7 @@ def _union(lhs: List[spec.Spec], rhs: List[spec.Spec]) -> List[spec.Spec]:
     return list(set(lhs + rhs))
 
 
-def _eval_and(
-    group: List, version_lookup: loading.PyPILookup
-) -> bool | List[Any] | None:
+def _eval_and(group: list, version_lookup: loading.PyPILookup) -> bool | list[Any] | None:
     lhs = _eval_node(group[0], version_lookup)
     if lhs is False:
         return False
@@ -507,7 +518,7 @@ def _eval_and(
         rhs = _eval_node(node, version_lookup)
         if rhs is False:  # false beats none
             return False
-        elif lhs is None or rhs is None:  # none beats true / List[Spec]
+        if lhs is None or rhs is None:  # none beats true / List[Spec]
             lhs = None
         elif rhs is True:
             continue
@@ -520,16 +531,12 @@ def _eval_and(
     return lhs
 
 
-def _do_evaluate_marker(
-    node: list, lookup: loading.PyPILookup
-) -> Union[None, bool, List[spec.Spec]]:
+def _do_evaluate_marker(node: list, lookup: loading.PyPILookup) -> None | bool | list[spec.Spec]:
     """Recursively try to evaluate a node (in the marker expression tree).
 
     A marker is an expression tree, that we can sometimes translate to the
     Spack DSL.
     """
-    assert isinstance(node, list) and len(node) > 0, "node assert fails"
-
     # Inner array is "and", outer array is "or".
     groups = [[node[0]]]
     for i in range(2, len(node), 2):
@@ -541,14 +548,14 @@ def _do_evaluate_marker(
         else:
             raise ValueError(f"unexpected operator {op}")
 
-    lhs: "bool | List[Any] | None" = _eval_and(groups[0], lookup)
+    lhs: bool | list[Any] | None = _eval_and(groups[0], lookup)
     if lhs is True:
         return True
     for group in groups[1:]:
         rhs = _eval_and(group, lookup)
         if rhs is True:
             return True
-        elif lhs is None or rhs is None:
+        if lhs is None or rhs is None:
             lhs = None
         elif lhs is False:
             lhs = rhs
@@ -557,9 +564,7 @@ def _do_evaluate_marker(
     return lhs
 
 
-def evaluate_marker(
-    m: markers.Marker, lookup: loading.PyPILookup
-) -> Union[bool, None, List[spec.Spec]]:
+def evaluate_marker(m: markers.Marker, lookup: loading.PyPILookup) -> bool | None | list[spec.Spec]:
     """Evaluate a marker.
 
     Evaluate the marker expression tree either (1) as a list of specs that
@@ -567,3 +572,98 @@ def evaluate_marker(
     we only support cpython, (3) None if we can't translate it into Spack DSL.
     """
     return _do_evaluate_marker(m._markers, lookup)
+
+
+# TODO @davhofer: verify whether spack name actually corresponds to PyPI package  # noqa: TD003
+def pkg_to_spack_name(name: str) -> str:
+    """Convert PyPI package name to Spack python package name."""
+    spack_name: str = naming.simplify_name(name)
+    # in general, if the package name already contains the "py-" prefix, we
+    # don't want to add it again. exception: 3 existing packages on spack
+    # with double "py-" prefix
+    if spack_name != "python" and (
+        not spack_name.startswith("py-")
+        or spack_name
+        in [
+            "py-cpuinfo",
+            "py-tes",
+            "py-spy",
+        ]
+    ):
+        spack_name = "py-" + spack_name
+
+    return spack_name
+
+
+def _convert_requirement(
+    r: requirements.Requirement,
+    lookup: loading.PyPILookup,
+    from_extra: str | None = None,
+) -> list[tuple[spec.Spec, spec.Spec]] | ConversionError:
+    """Convert a packaging Requirement to its Spack equivalent.
+
+    Each Spack requirement consists of a main dependency Spec and "when" Spec
+    for conditions like variants or markers. It can happen that one requirement
+    is converted into a list of multiple Spack requirements, which all need to
+    be added.
+
+    Parameters:
+        r: packaging requirement
+        from_extra: If this requirement an optional requirement dependent on an
+        extra of the main package, supply the extra's name here.
+
+    Returns:
+        A list of tuples of (main_dependency_spec, when_spec).
+    """
+    spack_name = pkg_to_spack_name(r.name)
+
+    requirement_spec = spec.Spec(spack_name)
+
+    # by default contains just an empty when_spec
+    when_spec_list = [spec.Spec()]
+    if r.marker is not None:
+        # 'evaluate_marker' code returns a list of specs for  marker =>
+        # represents OR of specs
+        try:
+            marker_eval = evaluate_marker(r.marker, lookup)
+        except ValueError as e:
+            from_extra_str = "" if not from_extra else f" from extra '{from_extra}'"
+            msg = f"Unable to convert marker {r.marker} for dependency" f" {r}{from_extra_str}: {e}"
+            return ConversionError(msg, requirement=str(r))
+
+        if isinstance(marker_eval, bool) and marker_eval is False:
+            # Marker is statically false, skip this requirement
+            # (because the "when" clause cannot be true)
+            return []
+
+        # if the marker eval is not bool, then it is a list
+        if not isinstance(marker_eval, bool) and isinstance(marker_eval, list):
+            # replace empty when spec with marker specs
+            when_spec_list = marker_eval
+
+        # if marker_eval is True, then the marker is statically true, we don't
+        # need to include it
+
+    # these are the extras passed to the dependency itself; not the extras of
+    # the main package for which this requirement is necessary
+    if r.extras is not None:
+        for extra in r.extras:
+            requirement_spec.constrain(spec.Spec(f"+{extra}"))
+
+    if r.specifier is not None:
+        vlist = _pkg_specifier_set_to_version_list(r.name, r.specifier, lookup)
+
+        # return Error if no version satisfies the requirement
+        if not vlist:
+            from_extra_str = "" if not from_extra else f" from extra {from_extra}"
+            msg = f"Unable to convert dependency" f" {r}{from_extra_str}: no matching versions"
+            return ConversionError(msg, requirement=str(r))
+
+        requirement_spec.versions = vlist
+
+    if from_extra is not None:
+        # further constrain when_specs with extra
+        for when_spec in when_spec_list:
+            when_spec.constrain(spec.Spec(f"+{from_extra}"))
+
+    return [(requirement_spec, when_spec) for when_spec in when_spec_list]
