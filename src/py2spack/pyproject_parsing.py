@@ -302,7 +302,7 @@ class DataFetcher:
 
     def get_requires_python(
         self,
-    ) -> specifiers.SpecifierSet | ConfigurationError:
+    ) -> specifiers.SpecifierSet | ConfigurationError | None:
         """Parses the 'requires-python' field."""
         parsed_requires_python = self.get_str("project.requires-python")
         if isinstance(parsed_requires_python, str):

@@ -5,7 +5,7 @@ This package allows converting standard python packages to Spack packages.
 
 from __future__ import annotations
 
-from .main import SpackPyPkg
+from .core import SpackPyPkg
 
 
 __version__ = "0.0.1"
