@@ -1,0 +1,39 @@
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.4.0
+    hooks:
+      - id: check-merge-conflict
+      - id: check-toml
+      - id: check-yaml
+      - id: debug-statements
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    # Ruff version.
+    rev: v0.5.4
+    hooks:
+      # Run the linter.
+      - id: ruff
+        files: ^src/
+        args: [--fix, --config, "pyproject.toml"]
+      # Run the formatter.
+      - id: ruff-format
+
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.10.1
+    hooks:
+      - id: mypy
+        additional_dependencies:
+          - packaging==24.1
+          - requests==2.32.3
+          - tomli==2.0.1
+          - types-requests==2.32.0.20240712
+        args: [--no-install-types, --config-file, "pyproject.toml"]
+        exclude: |
+          (?x)^(
+          setup.py |
+          build/.* |
+          ci/.* |
+          docs/.* |
+          tests/.* |
+          example_pyprojects/.*
+          )$
