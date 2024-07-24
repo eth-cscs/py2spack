@@ -340,7 +340,7 @@ def _simplify_python_constraint(versions: sv.VersionList) -> None:
 
 
 def _eval_platform_constraint(
-    node: tuple[markers.Variable, markers.Op, markers.Value],  # type: ignore[attr-defined, name-defined]
+    node: tuple[markers.Variable, markers.Op, markers.Value],  # type: ignore[name-defined]
 ) -> bool | list[spec.Spec] | None:
     platforms = ("linux", "cray", "darwin", "windows", "freebsd")
 
@@ -372,7 +372,7 @@ def _eval_platform_constraint(
 
 
 def _eval_python_constraint(
-    node: tuple[markers.Variable, markers.Op, markers.Value],  # type: ignore[attr-defined, name-defined]
+    node: tuple[markers.Variable, markers.Op, markers.Value],  # type: ignore[name-defined]
     provider: package_providers.PyProjectProvider,
 ) -> bool | list[spec.Spec] | None:
     variable, op, value = node
@@ -397,7 +397,7 @@ def _eval_python_constraint(
 
 
 def _eval_constraint(
-    node: tuple[markers.Variable, markers.Op, markers.Value],  # type: ignore[attr-defined, name-defined]
+    node: tuple[markers.Variable, markers.Op, markers.Value],  # type: ignore[name-defined]
     provider: package_providers.PyProjectProvider,
 ) -> None | bool | list[spec.Spec]:
     """Evaluate a environment marker (variable, operator, value).
@@ -414,7 +414,7 @@ def _eval_constraint(
     variable, op, value = node
 
     # Flip the comparison if the value is on the left-hand side.
-    if isinstance(variable, markers.Value) and isinstance(value, markers.Variable):  # type: ignore[attr-defined, name-defined]
+    if isinstance(variable, markers.Value) and isinstance(value, markers.Variable):  # type: ignore[attr-defined]
         flipped_op = {
             ">": "<",
             "<": ">",
@@ -464,7 +464,7 @@ def _eval_constraint(
 
 
 def _eval_node(
-    node: tuple[markers.Variable, markers.Op, markers.Value] | list[Any],  # type: ignore[attr-defined, name-defined]
+    node: tuple[markers.Variable, markers.Op, markers.Value] | list[Any],  # type: ignore[name-defined]
     provider: package_providers.PyProjectProvider,
 ) -> None | bool | list[spec.Spec]:
     if isinstance(node, tuple):
