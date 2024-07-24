@@ -742,4 +742,3 @@ if __name__ == "__main__":
     else:
         # print to console
         spack_pkg.print_package(outfile=sys.stdout)
-

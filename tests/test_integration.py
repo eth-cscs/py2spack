@@ -41,4 +41,3 @@ def test_e2e_uninterrupted3() -> None:
     spack_pkg.print_package(outfile=sys.stdout)
 
     assert True
-

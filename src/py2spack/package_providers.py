@@ -314,4 +314,3 @@ def try_load_toml(
         result = PyProjectProviderQueryError(msg)
 
     return result
-

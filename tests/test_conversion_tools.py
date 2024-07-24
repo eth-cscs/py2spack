@@ -456,4 +456,3 @@ def test_convert_requirement_invalid() -> None:
 def test_pkg_to_spack_name(name: str, expected: str) -> None:
     """Unit tests for method."""
     assert conversion_tools.pkg_to_spack_name(name) == expected
-

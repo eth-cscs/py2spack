@@ -87,4 +87,3 @@ def test_format_dependency(dep_spec: spec.Spec, when_spec: spec.Spec, expected: 
 # these last to maybe already integration tests?
 # PyProject.from_toml
 # SpackPyPkg.convert_pkg
-

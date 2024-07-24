@@ -158,4 +158,3 @@ def test_pypilookup_get_files():
 # PyPILookup functions: _get, get_versions, get_files
 # _extract_from_tar
 # try_load_toml
-

@@ -376,4 +376,3 @@ class Readme(typing.NamedTuple):
 def valid_pypi_name(name: str) -> bool:
     """Checks whether 'name' is a valid pypi name."""
     return re.match(r"^([A-Z0-9]|[A-Z0-9][A-Z0-9._-]*[A-Z0-9])$", name, re.IGNORECASE) is not None
-

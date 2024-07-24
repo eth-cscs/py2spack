@@ -152,4 +152,3 @@ def test_get_homepage() -> None:
     # Simulate a scenario where homepage is missing
     no_homepage_fetcher = pyproject_parsing.DataFetcher({"project": {"urls": {}}})
     assert no_homepage_fetcher.get_homepage() is None
-

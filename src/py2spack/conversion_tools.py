@@ -670,4 +670,3 @@ def _convert_requirement(
             when_spec.constrain(spec.Spec(f"+{from_extra}"))
 
     return [(requirement_spec, when_spec) for when_spec in when_spec_list]
-
