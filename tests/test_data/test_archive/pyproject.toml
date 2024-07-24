@@ -1,0 +1,20 @@
+# Example configuration 
+# Some comments
+
+[tool.black]
+line-length = 88
+
+# ...
+
+[build-system]
+requires = ["hatchling>=1.8.0", "hatch-vcs", "hatch-fancy-pypi-readme"]
+build-backend = "hatchling.build"
+
+[project]
+name = "test"
+description = "description ..."
+license = { text = "MIT" }
+requires-python = ">=3.8"
+dependencies = [
+  "packaging>=22.0",
+]
