@@ -7,18 +7,16 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import packaging.version as pv
-import spack.error
-import spack.parser
+import spack.error  # type: ignore[import-untyped]
+import spack.parser  # type: ignore[import-untyped]
 from packaging import markers, requirements, specifiers
 from spack import spec, version as sv
-from spack.util import naming
+from spack.util import naming  # type: ignore[import-untyped]
 
-
-if TYPE_CHECKING:
-    from py2spack import loading
+from py2spack import package_providers
 
 
 # these python versions are not supported anymore, so we shouldn't need to
@@ -64,19 +62,7 @@ class ConversionError(Exception):
 
 
 # TODO @davhofer: integrate this into a datastructure, omit mutable global state  # noqa: TD003
-evalled: dict = {}
-
-
-def acceptable_version(version: str) -> pv.Version | None:
-    """Check whether version string can be parsed and has correct format."""
-    try:
-        v = pv.parse(version)
-        # do not support post releases of prereleases etc.
-        if v.pre and (v.post or v.dev or v.local):
-            return None
-        return v
-    except pv.InvalidVersion:
-        return None
+evalled: dict[tuple[str, specifiers.SpecifierSet], sv.VersionList] = {}
 
 
 def _get_python_versions() -> list[pv.Version]:
@@ -293,7 +279,7 @@ def condensed_version_list(
 def _pkg_specifier_set_to_version_list(
     pkg: str,
     specifier_set: specifiers.SpecifierSet,
-    lookup: loading.PyPILookup,
+    provider: package_providers.PyProjectProvider,
 ) -> sv.VersionList:
     """Convert the specifier set to an equivalent list of version ranges."""
     # TODO @davhofer: improve how & where the caching is done?  # noqa: TD003
@@ -301,16 +287,18 @@ def _pkg_specifier_set_to_version_list(
     if key in evalled:
         return evalled[key]
 
-    all_versions = _get_python_versions() if pkg == "python" else lookup.get_versions(pkg)
-
-    matching = [s for s in all_versions if specifier_set.contains(s, prereleases=True)]
-    result = sv.VersionList() if not matching else condensed_version_list(matching, all_versions)
+    all_versions = _get_python_versions() if pkg == "python" else provider.get_versions(pkg)
+    result = sv.VersionList()
+    if not isinstance(all_versions, package_providers.PyProjectProviderQueryError):
+        matching = [s for s in all_versions if specifier_set.contains(s, prereleases=True)]
+        if matching:
+            result = condensed_version_list(matching, all_versions)
     evalled[key] = result
     return result
 
 
 def _eval_python_version_marker(
-    op: str, value: str, lookup: loading.PyPILookup
+    op: str, value: str, provider: package_providers.PyProjectProvider
 ) -> sv.VersionList | None:
     # TODO @davhofer: there might be still some bug caused by python_version vs  # noqa: TD003
     # python_full_version differences.
@@ -327,7 +315,7 @@ def _eval_python_version_marker(
         logging.warning(msg)
         return None
 
-    return _pkg_specifier_set_to_version_list("python", specifier, lookup)
+    return _pkg_specifier_set_to_version_list("python", specifier, provider)
 
 
 def _simplify_python_constraint(versions: sv.VersionList) -> None:
@@ -351,7 +339,9 @@ def _simplify_python_constraint(versions: sv.VersionList) -> None:
         vs[0] = union
 
 
-def _eval_platform_constraint(node: tuple) -> bool | list[spec.Spec] | None:
+def _eval_platform_constraint(
+    node: tuple[markers.Variable, markers.Op, markers.Value],  # type: ignore[attr-defined, name-defined]
+) -> bool | list[spec.Spec] | None:
     platforms = ("linux", "cray", "darwin", "windows", "freebsd")
 
     variable, op, value = node
@@ -382,10 +372,11 @@ def _eval_platform_constraint(node: tuple) -> bool | list[spec.Spec] | None:
 
 
 def _eval_python_constraint(
-    node: tuple, lookup: loading.PyPILookup
+    node: tuple[markers.Variable, markers.Op, markers.Value],  # type: ignore[attr-defined, name-defined]
+    provider: package_providers.PyProjectProvider,
 ) -> bool | list[spec.Spec] | None:
     variable, op, value = node
-    versions = _eval_python_version_marker(op.value, value.value, lookup)
+    versions = _eval_python_version_marker(op.value, value.value, provider)
 
     if versions is not None:
         _simplify_python_constraint(versions)
@@ -405,7 +396,10 @@ def _eval_python_constraint(
     return None
 
 
-def _eval_constraint(node: tuple, lookup: loading.PyPILookup) -> None | bool | list[spec.Spec]:
+def _eval_constraint(
+    node: tuple[markers.Variable, markers.Op, markers.Value],  # type: ignore[attr-defined, name-defined]
+    provider: package_providers.PyProjectProvider,
+) -> None | bool | list[spec.Spec]:
     """Evaluate a environment marker (variable, operator, value).
 
     Returns:
@@ -420,7 +414,7 @@ def _eval_constraint(node: tuple, lookup: loading.PyPILookup) -> None | bool | l
     variable, op, value = node
 
     # Flip the comparison if the value is on the left-hand side.
-    if isinstance(variable, markers.Value) and isinstance(value, markers.Variable):
+    if isinstance(variable, markers.Value) and isinstance(value, markers.Variable):  # type: ignore[attr-defined, name-defined]
         flipped_op = {
             ">": "<",
             "<": ">",
@@ -434,7 +428,7 @@ def _eval_constraint(node: tuple, lookup: loading.PyPILookup) -> None | bool | l
             msg = f"do not know how to evaluate `{node}`"
             logging.warning(msg)
             return None
-        variable, op, value = value, markers.Op(flipped_op), variable
+        variable, op, value = value, markers.Op(flipped_op), variable  # type: ignore[attr-defined]
 
     return_val: bool | list[spec.Spec] | None = None
 
@@ -450,7 +444,7 @@ def _eval_constraint(node: tuple, lookup: loading.PyPILookup) -> None | bool | l
         return_val = _eval_platform_constraint(node)
 
     elif variable.value in ("python_version", "python_full_version"):
-        return_val = _eval_python_constraint(node, lookup)
+        return_val = _eval_python_constraint(node, provider)
 
     else:
         try:
@@ -469,10 +463,13 @@ def _eval_constraint(node: tuple, lookup: loading.PyPILookup) -> None | bool | l
     return return_val
 
 
-def _eval_node(node: tuple | list, lookup: loading.PyPILookup) -> None | bool | list[spec.Spec]:
+def _eval_node(
+    node: tuple[markers.Variable, markers.Op, markers.Value] | list[Any],  # type: ignore[attr-defined, name-defined]
+    provider: package_providers.PyProjectProvider,
+) -> None | bool | list[spec.Spec]:
     if isinstance(node, tuple):
-        return _eval_constraint(node, lookup)
-    return _do_evaluate_marker(node, lookup)
+        return _eval_constraint(node, provider)
+    return _do_evaluate_marker(node, provider)
 
 
 def _intersection(lhs: list[spec.Spec], rhs: list[spec.Spec]) -> list[spec.Spec]:
@@ -509,13 +506,15 @@ def _union(lhs: list[spec.Spec], rhs: list[spec.Spec]) -> list[spec.Spec]:
     return list(set(lhs + rhs))
 
 
-def _eval_and(group: list, version_lookup: loading.PyPILookup) -> bool | list[Any] | None:
-    lhs = _eval_node(group[0], version_lookup)
+def _eval_and(
+    group: list[Any], version_provider: package_providers.PyProjectProvider
+) -> bool | list[Any] | None:
+    lhs = _eval_node(group[0], version_provider)
     if lhs is False:
         return False
 
     for node in group[1:]:
-        rhs = _eval_node(node, version_lookup)
+        rhs = _eval_node(node, version_provider)
         if rhs is False:  # false beats none
             return False
         if lhs is None or rhs is None:  # none beats true / List[Spec]
@@ -531,7 +530,9 @@ def _eval_and(group: list, version_lookup: loading.PyPILookup) -> bool | list[An
     return lhs
 
 
-def _do_evaluate_marker(node: list, lookup: loading.PyPILookup) -> None | bool | list[spec.Spec]:
+def _do_evaluate_marker(
+    node: list[Any], provider: package_providers.PyProjectProvider
+) -> None | bool | list[spec.Spec]:
     """Recursively try to evaluate a node (in the marker expression tree).
 
     A marker is an expression tree, that we can sometimes translate to the
@@ -548,11 +549,11 @@ def _do_evaluate_marker(node: list, lookup: loading.PyPILookup) -> None | bool |
         else:
             raise ValueError(f"unexpected operator {op}")
 
-    lhs: bool | list[Any] | None = _eval_and(groups[0], lookup)
+    lhs: bool | list[Any] | None = _eval_and(groups[0], provider)
     if lhs is True:
         return True
     for group in groups[1:]:
-        rhs = _eval_and(group, lookup)
+        rhs = _eval_and(group, provider)
         if rhs is True:
             return True
         if lhs is None or rhs is None:
@@ -564,14 +565,16 @@ def _do_evaluate_marker(node: list, lookup: loading.PyPILookup) -> None | bool |
     return lhs
 
 
-def evaluate_marker(m: markers.Marker, lookup: loading.PyPILookup) -> bool | None | list[spec.Spec]:
+def evaluate_marker(
+    m: markers.Marker, provider: package_providers.PyProjectProvider
+) -> bool | None | list[spec.Spec]:
     """Evaluate a marker.
 
     Evaluate the marker expression tree either (1) as a list of specs that
     constitute the when conditions, (2) statically as True or False given that
     we only support cpython, (3) None if we can't translate it into Spack DSL.
     """
-    return _do_evaluate_marker(m._markers, lookup)
+    return _do_evaluate_marker(m._markers, provider)
 
 
 # TODO @davhofer: verify whether spack name actually corresponds to PyPI package  # noqa: TD003
@@ -597,7 +600,7 @@ def pkg_to_spack_name(name: str) -> str:
 
 def _convert_requirement(
     r: requirements.Requirement,
-    lookup: loading.PyPILookup,
+    provider: package_providers.PyProjectProvider,
     from_extra: str | None = None,
 ) -> list[tuple[spec.Spec, spec.Spec]] | ConversionError:
     """Convert a packaging Requirement to its Spack equivalent.
@@ -625,7 +628,7 @@ def _convert_requirement(
         # 'evaluate_marker' code returns a list of specs for  marker =>
         # represents OR of specs
         try:
-            marker_eval = evaluate_marker(r.marker, lookup)
+            marker_eval = evaluate_marker(r.marker, provider)
         except ValueError as e:
             from_extra_str = "" if not from_extra else f" from extra '{from_extra}'"
             msg = f"Unable to convert marker {r.marker} for dependency" f" {r}{from_extra_str}: {e}"
@@ -651,7 +654,7 @@ def _convert_requirement(
             requirement_spec.constrain(spec.Spec(f"+{extra}"))
 
     if r.specifier is not None:
-        vlist = _pkg_specifier_set_to_version_list(r.name, r.specifier, lookup)
+        vlist = _pkg_specifier_set_to_version_list(r.name, r.specifier, provider)
 
         # return Error if no version satisfies the requirement
         if not vlist:
@@ -667,3 +670,4 @@ def _convert_requirement(
             when_spec.constrain(spec.Spec(f"+{from_extra}"))
 
     return [(requirement_spec, when_spec) for when_spec in when_spec_list]
+

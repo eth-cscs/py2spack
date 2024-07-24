@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-import io
-import tarfile
-from typing import Any
+import abc
+import functools
+from typing import Any, Protocol
 
 import requests
-import tomli
 from packaging import version as vn
+
+from py2spack import utils
 
 
 KNOWN_ARCHIVE_FORMATS = [
@@ -20,166 +21,257 @@ KNOWN_ARCHIVE_FORMATS = [
     ".bz2",
 ]
 
-HTTP_STATUS_SUCCESS = 200
-HTTP_STATUS_NOT_FOUND = 404
 
-
-class APIError(Exception):
-    """Error during version lookup or querying of the PyPI JSON API."""
-
-    def __init__(
-        self,
-        msg: str,
-    ):
-        """Initialize error."""
-        super().__init__(msg)
-
-
-def _acceptable_version(version: str) -> vn.Version | None:
-    """Check whether version string can be parsed and has correct format."""
+def _parse_packaging_version(version: str) -> vn.Version | None:
+    """Parse packaging version."""
+    result = None
     try:
         v = vn.parse(version)
         # do not support post releases of prereleases etc.
-        if v.pre and (v.post or v.dev or v.local):
-            return None
-        return v
+        if not (v.pre and (v.post or v.dev or v.local)):
+            result = v
     except vn.InvalidVersion:
-        return None
+        pass
+
+    return result
 
 
-class PyPILookup:
-    """Performs PyPI API calls and caches package versions.
+class PyProjectProviderQueryError(Exception):
+    """Error during querying of the PyProjectProvider."""
 
-    The full API response (including available files and metadata) is not cached
-    due to its larger size and sparser usage.
+
+class PyProjectProvider(Protocol):
+    """General provider interface for Python distribution packages."""
+
+    @abc.abstractmethod
+    def get_versions(self, name: str) -> list[vn.Version] | PyProjectProviderQueryError:
+        """Get available package versions.
+
+        Returns an error if no versions are found.
+        """
+
+    @abc.abstractmethod
+    def get_pyproject(
+        self, name: str, version: vn.Version
+    ) -> dict[Any, Any] | PyProjectProviderQueryError:
+        """Get the contents of the pyproject.toml file for the specified version."""
+
+    @abc.abstractmethod
+    def get_hash(
+        self, name: str, version: vn.Version
+    ) -> dict[str, str] | PyProjectProviderQueryError:
+        """Get the sdist hash (sha256 if available) for the specified version."""
+
+
+class PyPIProvider(PyProjectProvider):
+    """Obtains project versions and distribution packages through the PyPI JSON API.
+
+    Various public and private methods of this class cache their return values in order
+    to minimize the number of requests to the provider.
     """
 
-    def __init__(self) -> None:
-        """Initialize empty PyPILookup."""
-        # cache for package name and corresponding version list
-        self.version_cache: dict[str, list[vn.Version]] = {}
+    def __init__(self, base_url: str = "https://pypi.org/simple/") -> None:
+        """Initialize PyPI Provider with base API url."""
+        if not base_url.endswith("/"):
+            base_url = f"{base_url}/"
+        self.base_url = base_url
 
-    def _get(self, name: str) -> dict | APIError:
+    @functools.lru_cache(maxsize=1)  # noqa: B019
+    def _get(self, name: str) -> dict[Any, Any] | PyProjectProviderQueryError:
         """Load info for the available distribution files from PyPI.
 
-        Available versions are cached.
+        Data for the most recent package is cached. The cache has a maxsize of 1,
+        because during conversion of a package, both methods `get_versions` as
+        well as `get_pyproject` use the returned data and we want to omit re-
+        peated requests to the API. Since all the method calls happen together,
+        before another package is requested, the cache size of 1 is enough.
         """
         r = requests.get(
-            f"https://pypi.org/simple/{name}/",
+            f"{self.base_url}{name}/",
             headers={"Accept": "application/vnd.pypi.simple.v1+json"},
             timeout=10,
         )
-        if r.status_code != HTTP_STATUS_SUCCESS:
-            if r.status_code == HTTP_STATUS_NOT_FOUND:
+        if r.status_code != utils.HTTP_STATUS_SUCCESS:
+            if r.status_code == utils.HTTP_STATUS_NOT_FOUND:
                 msg = f"Package {name} not found on PyPI (status code 404)"
-                return APIError(msg)
+                return PyProjectProviderQueryError(msg)
 
             msg = (
                 f"Error when querying JSON API (status code {r.status_code})."
                 f" Response: {r.text}"
             )
-            return APIError(msg)
+            return PyProjectProviderQueryError(msg)
 
-        data: dict = r.json()
+        data: dict[Any, Any] = r.json()
+        return data
+
+    @functools.cache  # noqa: B019
+    def get_versions(self, name: str) -> list[vn.Version] | PyProjectProviderQueryError:
+        """Get usable versions for package.
+
+        Returns an error if no versions are found.
+        In addition to the caching of the `_get` method, we also cache all calls
+        to `get_versions`, because the versions are needed frequently during the
+        conversion process for dependencies, and the size of the data is small.
+        """
+        data = self._get(name)
+        if isinstance(data, PyProjectProviderQueryError):
+            return data
+
         versions = data["versions"]
 
         # parse and sort versions
-        parsed_versions = sorted({vv for v in versions if (vv := _acceptable_version(v))})
+        result: list[vn.Version] | PyProjectProviderQueryError = sorted(
+            {vv for v in versions if (vv := _parse_packaging_version(v))}
+        )
 
-        self.version_cache[name] = parsed_versions
+        if not result:
+            result = PyProjectProviderQueryError("No valid versions found")
 
-        return data
+        return result
 
-    def get_versions(self, name: str) -> list[vn.Version]:
-        """Get acceptable versions for package (from cache if possible)."""
-        if name not in self.version_cache:
-            data = self._get(name)
+    def get_pyproject(
+        self, name: str, version: vn.Version
+    ) -> dict[Any, Any] | PyProjectProviderQueryError:
+        """Download and extract the pyproject.toml for the specified package version."""
+        all_metadata = self._get_distribution_metadata(name)
 
-            if isinstance(data, APIError):
-                self.version_cache[name] = []
+        if isinstance(all_metadata, PyProjectProviderQueryError):
+            return all_metadata
 
-        return self.version_cache[name]
+        metadata = all_metadata[version]
+        # python sdist archives contain a top level directory, e.g. "black-24.4.2/"
+        directory_str = f"{name}-{version}"
 
-    def get_files(self, name: str, last_n_versions: int = -1) -> list[dict[Any, Any]] | APIError:
+        # for type checker, we know these values are going to be strings
+        assert isinstance(metadata["url"], str)
+        assert isinstance(metadata["extension"], str)
+
+        return try_load_toml(metadata["url"], directory_str, metadata["extension"])
+
+    @functools.lru_cache(maxsize=1)  # noqa: B019
+    def _get_distribution_metadata(
+        self, name: str
+    ) -> dict[vn.Version, dict[str, str | dict[Any, Any]]] | PyProjectProviderQueryError:
         """Get metadata for available distribution files from PyPI.
 
-        Returns:
-            - List of dictionaries including filename, download url, version,
-            sdist archive extension, and archive sha256 hash.
-            If an error occurs, returns APIError object.
+        We cache the result in order to avoid repeatedly processing the same data
+        for all method calls to `get_pyproject` (which in turn calls this method).
+        The maxsize of 1 is due to the reasoning described in the `_get` method.
         """
+        # NOTE: caching both the _get_distribution_metadata and the _get methods might
+        # seem redundant, idea is that the caching of _get_distribution_metadata avoids
+        # repeated processing and caching of _get makes sure the calls to get_versions
+        # and get_pyproject do not both make a call to the API.
+        # due to the cachesize of 1 for both caches, data is only stored during the con-
+        # version of the current package
         data = self._get(name)
-        if isinstance(data, APIError):
+        if isinstance(data, PyProjectProviderQueryError):
             return data
         files = data["files"]
 
         # for now we only support tarball archives like .tar.gz
-        files_known_format = [f for f in files if _known_archive_format(f["filename"])]
+        files_known_format = [f for f in files if _archive_format_is_known(f["filename"])]
 
-        if len(files_known_format) == 0:
+        if not len(files_known_format):
             msg = (
                 "No files with known archive format found (note: wheel file"
                 " parsing not supported)"
             )
-            return APIError(msg)
+            return PyProjectProviderQueryError(msg)
 
         # for each file, get the filename, url, version, extension, and sha256
         # TODO @davhofer: in case of an error, skip the file or return the error?  # noqa: TD003
-        files_parsed: list[dict[str, str]] = []
+        files_parsed: dict[vn.Version, dict[str, str | dict[Any, Any]]] = {}
         for f in files_known_format:
             filename = f["filename"]
             archive_ext = _parse_archive_extension(filename)
-            if isinstance(archive_ext, APIError):
+            if isinstance(archive_ext, PyProjectProviderQueryError):
                 continue
 
-            v = _parse_version(filename, name, archive_ext)
+            v = _parse_version_from_filename(filename, name, archive_ext)
 
             if v is None:
                 continue
 
-            try:
-                sha256 = f["hashes"]["sha256"]
-            except KeyError:
+            # usually we except there to be a sha256 hash, but in theory there could be
+            # other or no hashes at all
+            hashes = f["hashes"]
+            if not hashes:
                 continue
 
-            files_parsed.append(
-                {
-                    "filename": filename,
-                    "url": f["url"],
-                    "version": v,
-                    "extension": archive_ext,
-                    "hash": sha256,
-                }
-            )
+            files_parsed[v] = {
+                "filename": filename,
+                "url": f["url"],
+                "extension": archive_ext,
+                "hashes": hashes,
+            }
 
         if not files_parsed:
-            return APIError("No valid files found")
+            return PyProjectProviderQueryError("No valid files found")
 
-        # if argument is -1, return all versions
-        if last_n_versions == -1:
-            return files_parsed
+        return files_parsed
 
-        return files_parsed[-last_n_versions:]
+    def get_hash(
+        self, name: str, version: vn.Version
+    ) -> dict[str, str] | PyProjectProviderQueryError:
+        """Get the sdist hash (sha256 if available) for the specified version."""
+        all_metadata = self._get_distribution_metadata(name)
+        if isinstance(all_metadata, PyProjectProviderQueryError):
+            return all_metadata
+
+        metadata = all_metadata.get(version)
+
+        if metadata:
+            assert isinstance(metadata["hashes"], dict)
+            hashes: dict[str, str] = metadata["hashes"]
+            if hashes:
+                if "sha256" in hashes:
+                    return {"sha256": hashes["sha256"]}
+
+                key, value = next(iter(hashes.items()))
+                return {key: value}
+
+        return PyProjectProviderQueryError("No hash found")
+
+    def get_pypi_package_base(self, name: str) -> str:
+        """Get the pypi string required by Spack for the specific package.
+
+        E.g. pypi = "black/black-24.4.2.tar.gz".
+        This method is specific to the PyPIProvider, as it is not required if source
+        distributions are downloaded from e.g. github.
+        """
+        all_metadata = self._get_distribution_metadata(name)
+        all_versions = self.get_versions(name)
+
+        # this function is only called if we know that there are valid sdists/versions
+        assert isinstance(all_metadata, dict)
+        assert isinstance(all_versions, list)
+        assert len(all_versions) > 0
+
+        most_recent = all_metadata[all_versions[-1]]
+
+        return f"{name}/{most_recent['filename']}"
 
 
-def _parse_archive_extension(filename: str) -> str | APIError:
+def _parse_archive_extension(filename: str) -> str | PyProjectProviderQueryError:
     extension_list = [ext for ext in KNOWN_ARCHIVE_FORMATS if filename.endswith(ext)]
 
-    if len(extension_list) == 0:
+    if not len(extension_list):
         # we return an API error here because the filenames are obtained through
         # the API and the function is used during the API lookup process
         msg = f"Extension not recognized for: {filename}"
-        return APIError(msg)
+        return PyProjectProviderQueryError(msg)
 
-    if len(extension_list) == 1:
-        return extension_list[0]
     # get the longest matching extension, e.g. .tar.gz instead of .gz
     return max(extension_list, key=len)
 
 
-def _parse_version(filename: str, pkg_name: str, archive_ext: str) -> vn.Version | None:
+def _parse_version_from_filename(
+    filename: str, pkg_name: str, archive_ext: str
+) -> vn.Version | None:
     """Parse version from filename and check correct formatting."""
-    prefix = pkg_name + "-"
+    prefix = f"{pkg_name}-"
     if not (filename.startswith(prefix) and filename.endswith(archive_ext)):
         return None
     version_str = filename[len(prefix) : -len(archive_ext)]
@@ -191,54 +283,35 @@ def _parse_version(filename: str, pkg_name: str, archive_ext: str) -> vn.Version
         return None
 
 
-def _known_archive_format(filename: str) -> bool:
+def _archive_format_is_known(filename: str) -> bool:
     return any(filename.endswith(ext) for ext in KNOWN_ARCHIVE_FORMATS)
 
 
-def _download_sdist(url: str) -> io.BytesIO | APIError:
-    """Download source distribution from url as BytesIO object (in memory)."""
-    response = requests.get(url)
-    if response.status_code == HTTP_STATUS_SUCCESS:
-        return io.BytesIO(response.content)
-
-    filename = url.split("/")[-1]
-    msg = f"Failed to download sdist {filename}," f" status code: {response.status_code}"
-    return APIError(msg)
-
-
-def _extract_from_tar(file_like_object: io.BytesIO, directory_name: str) -> dict | APIError:
-    """Extract pyproject.toml from tar archive.
-
-    The top level directory name inside the archive must be given explicitly.
-    Contents are returned as a dictionary.
-    """
-    # works for .gz, .bz2, .xz, ...
-    try:
-        with tarfile.open(fileobj=file_like_object, mode="r:*") as tar:
-            member = tar.getmember(f"{directory_name}/pyproject.toml")
-            f = tar.extractfile(member)
-
-            if f is not None:
-                pyproject_content = f.read().decode("utf-8")
-                return tomli.loads(pyproject_content)
-
-    except (OSError, tarfile.TarError, UnicodeDecodeError, tomli.TOMLDecodeError, KeyError) as e:
-        msg = f"Exception {type(e)}: {e}"
-        return APIError(msg)
-
-    return APIError("Could not extract pyproject.toml from sdist")
-
-
 # TODO @davhofer: handle zip archives  # noqa: TD003
-def try_load_toml(url: str, directory_name: str, archive_ext: str) -> dict | APIError:
+# TODO @davhofer: should this function be placed in the PyProjectProvider Protocol? or in utils?  # noqa: TD003
+# generic function for loading any file/filetype?
+def try_load_toml(
+    url: str, directory_name: str, archive_ext: str
+) -> dict[Any, Any] | PyProjectProviderQueryError:
     """Load sdist from url and extract pyproject.toml contents."""
-    sdist_file_obj = _download_sdist(url)
-    if isinstance(sdist_file_obj, APIError):
-        return sdist_file_obj
+    sdist_file_obj = utils.download_sdist(url)
 
-    if archive_ext in KNOWN_ARCHIVE_FORMATS:
-        return _extract_from_tar(sdist_file_obj, directory_name)
+    result: dict[Any, Any] | None | PyProjectProviderQueryError
 
-    msg = "Failed to open sdist, format must be tarball archive (.tar.gz," " .bz2, etc.)"
+    if sdist_file_obj is None:
+        msg = f"Unable to download package {directory_name} from {url}"
+        result = PyProjectProviderQueryError(msg)
 
-    return APIError(msg)
+    elif archive_ext in KNOWN_ARCHIVE_FORMATS:
+        file_path = f"{directory_name}/pyproject.toml"
+        result = utils.extract_from_tar(sdist_file_obj, file_path)
+        if result is None:
+            msg = f"Unable to extract {file_path} from archive"
+            result = PyProjectProviderQueryError(msg)
+
+    else:
+        msg = "Failed to open sdist, format must be tarball archive (.tar.gz, .bz2, etc.)"
+        result = PyProjectProviderQueryError(msg)
+
+    return result
+

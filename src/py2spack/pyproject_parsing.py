@@ -302,7 +302,7 @@ class DataFetcher:
 
     def get_requires_python(
         self,
-    ) -> specifiers.SpecifierSet | ConfigurationError:
+    ) -> specifiers.SpecifierSet | ConfigurationError | None:
         """Parses the 'requires-python' field."""
         parsed_requires_python = self.get_str("project.requires-python")
         if isinstance(parsed_requires_python, str):
@@ -376,3 +376,4 @@ class Readme(typing.NamedTuple):
 def valid_pypi_name(name: str) -> bool:
     """Checks whether 'name' is a valid pypi name."""
     return re.match(r"^([A-Z0-9]|[A-Z0-9][A-Z0-9._-]*[A-Z0-9])$", name, re.IGNORECASE) is not None
+
