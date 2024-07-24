@@ -598,7 +598,7 @@ def pkg_to_spack_name(name: str) -> str:
     return spack_name
 
 
-def _convert_requirement(
+def convert_requirement(
     r: requirements.Requirement,
     provider: package_providers.PyProjectProvider,
     from_extra: str | None = None,

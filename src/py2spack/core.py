@@ -508,7 +508,7 @@ class SpackPyPkg:
         provider: package_providers.PyProjectProvider,
         from_extra: str | None = None,
     ) -> None:
-        spec_list = conversion_tools._convert_requirement(r, provider, from_extra=from_extra)
+        spec_list = conversion_tools.convert_requirement(r, provider, from_extra=from_extra)
 
         if isinstance(spec_list, conversion_tools.ConversionError):
             if str(pyproject_version) not in self._dependency_conversion_errors:
