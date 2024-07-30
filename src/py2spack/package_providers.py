@@ -66,7 +66,6 @@ class PyProjectProvider(Protocol, Hashable):
         """Get the sdist hash (sha256 if available) for the specified version."""
 
 
-# TODO @davhofer: this is set in order to get consistent hashes of class instances. This is something we need from all instantiations of the PyProjectProvider protocol. How to specify that? an abstractmethod __hash__() decorator does not seem to work...
 @dataclasses.dataclass(frozen=True)
 class PyPIProvider(PyProjectProvider):
     """Obtains project versions and distribution packages through the PyPI JSON API.

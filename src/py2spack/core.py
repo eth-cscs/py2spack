@@ -36,10 +36,17 @@ class ParseError:
     pkg_version: str | None = None
 
 
+@dataclasses.dataclass(frozen=True)
+class DependencyConflictError:
+    """Satisfiability conflict between two dependencies."""
+
+    msg: str
+
+
 def _format_dependency(
     dependency_spec: spec.Spec,
     when_spec: spec.Spec,
-    dep_types: list[str] | None = None,
+    dep_types: set[str] | None = None,
 ) -> str:
     """Format a Spack dependency.
 
@@ -66,16 +73,16 @@ def _format_dependency(
         when_str = f', when="{when_str_inner}"'
 
     type_str = ""
-    if dep_types is not None:
-        type_str_inner = '", "'.join(dep_types)
-        type_str = f', type=("{type_str_inner}")'
+    if dep_types is not None and dep_types:
+        type_str_inner = str(tuple(sorted(dep_types))).replace("'", '"')
+        type_str = f", type={type_str_inner}"
 
     return f"{prefix}{when_str}{type_str})"
 
 
-def _check_dependency_satisfiability(
-    dependency_list: list[tuple[spec.Spec, spec.Spec, str]],
-) -> bool:
+def _find_dependency_satisfiability_conflicts(
+    dependency_list: list[tuple[spec.Spec, spec.Spec, set[str]]],
+) -> list[DependencyConflictError]:
     """Checks a list of Spack dependencies for conflicts.
 
     The list consists of triplets (dependency spec, when spec, type string). A
@@ -88,7 +95,7 @@ def _check_dependency_satisfiability(
     intersect too".
     """
     # TODO @davhofer: refactor, return list of conflicts
-    sat: bool = True
+    dependency_conflicts: list[DependencyConflictError] = []
 
     dependency_names = list({dep[0].name for dep in dependency_list if dep[0].name is not None})
 
@@ -97,21 +104,16 @@ def _check_dependency_satisfiability(
 
         for i in range(len(pkg_dependencies)):
             for j in range(i + 1, len(pkg_dependencies)):
-                dep1, when1, _ = pkg_dependencies[i]
-                dep2, when2, _ = pkg_dependencies[j]
+                dep1, when1, types1 = pkg_dependencies[i]
+                dep2, when2, types2 = pkg_dependencies[j]
 
                 if when1.intersects(when2) and (not dep1.intersects(dep2)):
-                    sat = False
-                    # TODO @davhofer: should conflicts be collected and returned instead
-                    # of printed to console?
-                    msg = (
-                        "uncompatible requirements for dependency "
-                        f"'{name}'!\nRequirement 1: {dep1!s}; when-spec: "
-                        f"{when1!s}\nRequirement 2: {dep2!s}; when-spec:"
-                        f" {when2!s}"
+                    dep_str1 = _format_dependency(dep1, when1, dep_types=types1)
+                    dep_str2 = _format_dependency(dep2, when2, dep_types=types2)
+                    dependency_conflicts.append(
+                        DependencyConflictError(f"{dep_str1} and {dep_str2}")
                     )
-                    logging.warning(msg)
-    return sat
+    return dependency_conflicts
 
 
 def _people_to_strings(
@@ -325,6 +327,9 @@ class SpackPyPkg:
     _dependency_conversion_errors: dict[str, list[conversion_tools.ConversionError]] = (
         dataclasses.field(default_factory=dict)
     )
+    _dependency_conflict_errors: list[DependencyConflictError] = dataclasses.field(
+        default_factory=list
+    )
     # map each unique dependency (dependency spec, when spec) to a
     # list of package versions that have this dependency
     _specs_to_versions: dict[tuple[spec.Spec, spec.Spec], list[pv.Version]] = dataclasses.field(
@@ -358,7 +363,7 @@ class SpackPyPkg:
 
     def _dependencies_from_pyproject(
         self, pyprojects: list[PyProject], provider: package_providers.PyProjectProvider
-    ) -> bool:
+    ) -> None:
         """Convert and combine dependencies from a list of pyprojects.
 
         Conversion and simplification of dependencies summarized:
@@ -407,33 +412,33 @@ class SpackPyPkg:
         # list to the when spec. from there, build a complete list with all
         # dependencies
 
-        final_dependency_list: list[tuple[spec.Spec, spec.Spec, str]] = []
+        final_dependency_list: list[tuple[spec.Spec, spec.Spec, set[str]]] = []
 
         for (dep_spec, when_spec), vlist in self._specs_to_versions.items():
             types = self._specs_to_types[dep_spec, when_spec]
 
+            versions_condensed = conversion_tools.condensed_version_list(vlist, self._all_versions)
+            when_spec.versions = versions_condensed
+            final_dependency_list.append((dep_spec, when_spec, types))
+
+        # check for conflicts
+        self._dependency_conflict_errors = _find_dependency_satisfiability_conflicts(
+            final_dependency_list
+        )
+
+        if self._dependency_conflict_errors:
+            logging.warning("Package '%s' contains incompatible requirements", self.pypi_name)
+
+        # store dependencies by their type string (e.g. type=("build", "run"))
+        for dep_spec, when_spec, types in final_dependency_list:
             # convert the set of types to a string as it would be displayed in
             # the package.py, e.g. '("build", "run")'.
             canonical_typestring = str(tuple(sorted(types))).replace("'", '"')
 
-            versions_condensed = conversion_tools.condensed_version_list(vlist, self._all_versions)
-            when_spec.versions = versions_condensed
-            final_dependency_list.append((dep_spec, when_spec, canonical_typestring))
+            if canonical_typestring not in self._dependencies_by_type:
+                self._dependencies_by_type[canonical_typestring] = []
 
-        # check for conflicts
-        satisfiable = _check_dependency_satisfiability(final_dependency_list)
-
-        if not satisfiable:
-            logging.warning("Package '%s' contains incompatible requirements", self.pypi_name)
-
-        # store dependencies by their type string (e.g. type=("build", "run"))
-        for dep_spec, when_spec, typestring in final_dependency_list:
-            if typestring not in self._dependencies_by_type:
-                self._dependencies_by_type[typestring] = []
-
-            self._dependencies_by_type[typestring].append((dep_spec, when_spec))
-
-        return satisfiable
+            self._dependencies_by_type[canonical_typestring].append((dep_spec, when_spec))
 
     def _requirement_from_pyproject(
         self,
@@ -497,10 +502,7 @@ class SpackPyPkg:
             print(f'    """{self.description}"""', file=outfile)
         else:
             txt = '    """FIXME: Put a proper description' ' of your package here."""'
-            print(
-                txt,
-                file=outfile,
-            )
+            print(txt, file=outfile)
 
         print("", file=outfile)
 
@@ -553,10 +555,7 @@ class SpackPyPkg:
                 "    # FIXME: the pyproject.toml files for the following "
                 "versions could not be parsed"
             )
-            print(
-                txt,
-                file=outfile,
-            )
+            print(txt, file=outfile)
             for v, p_err in self._file_parse_errors:
                 print(f"    # version {v!s}: {p_err.msg}", file=outfile)
 
@@ -569,10 +568,7 @@ class SpackPyPkg:
 
         if self._dependency_parse_errors:
             txt = "    # FIXME: the following dependencies could not be parsed"
-            print(
-                txt,
-                file=outfile,
-            )
+            print(txt, file=outfile)
             for v, cfg_errs in self._dependency_parse_errors.items():
                 print(f"    # version {v!s}:", file=outfile)
                 for cfg_err in cfg_errs:
@@ -585,14 +581,23 @@ class SpackPyPkg:
                 "    # FIXME: the following dependencies could be parsed but "
                 "not converted to spack"
             )
-            print(
-                txt,
-                file=outfile,
-            )
+            print(txt, file=outfile)
             for v, cnv_errs in self._dependency_conversion_errors.items():
                 print(f"    # version {v!s}:", file=outfile)
                 for cnv_err in cnv_errs:
                     print(f"    #    {cnv_err.msg}", file=outfile)
+
+            print("", file=outfile)
+
+        if self._dependency_conflict_errors:
+            txt = """\
+    # FIXME: the following dependency conflicts were found. A conflict arises if two dependencies
+    # have intersecting 'when=...' Specs (meaning that they can both be required at the same time),
+    # but non-intersecting dependency Specs (e.g. 'pkg@4.2:' and 'pkg@:3.5')"""
+            print(txt, file=outfile)
+
+            for dep_conflict in self._dependency_conflict_errors:
+                print(f"    # {dep_conflict.msg}", file=outfile)
 
             print("", file=outfile)
 

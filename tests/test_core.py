@@ -11,51 +11,77 @@ from py2spack import core
 @pytest.mark.parametrize(
     ("dep_list", "expected"),
     [
-        ([(spec.Spec(), spec.Spec(), "")], True),
-        ([(spec.Spec("pkg@4.2:"), spec.Spec(), "")], True),
-        ([(spec.Spec("pkg@4.2:"), spec.Spec("^python@:3.11"), "")], True),
+        ([(spec.Spec(), spec.Spec(), {})], []),
+        ([(spec.Spec("pkg@4.2:"), spec.Spec(), {})], []),
+        ([(spec.Spec("pkg@4.2:"), spec.Spec("^python@:3.11"), {})], []),
         (
             [
-                (spec.Spec("pkg@4.2:"), spec.Spec("platform=linux"), ""),
-                (spec.Spec("pkg@:4.3"), spec.Spec("platform=windows"), ""),
+                (spec.Spec("pkg@4.2:"), spec.Spec("platform=linux"), {}),
+                (spec.Spec("pkg@:4.3"), spec.Spec("platform=windows"), {}),
             ],
-            True,
+            [],
         ),
         (
             [
-                (spec.Spec("pkg@4.2:"), spec.Spec("platform=windows"), ""),
-                (spec.Spec("pkg@:4.3"), spec.Spec("platform=windows"), ""),
+                (spec.Spec("pkg@4.2:"), spec.Spec("platform=windows"), {}),
+                (spec.Spec("pkg@:4.3"), spec.Spec("platform=windows"), {}),
             ],
-            True,
+            [],
         ),
         (
             [
-                (spec.Spec("pkg@:4.2"), spec.Spec("platform=windows"), ""),
-                (spec.Spec("pkg@4.3:"), spec.Spec("platform=windows"), ""),
+                (spec.Spec("pkg@:4.2"), spec.Spec("platform=windows"), {}),
+                (spec.Spec("pkg@4.3:"), spec.Spec("platform=windows"), {}),
             ],
-            False,
+            [
+                core.DependencyConflictError(
+                    'depends_on("pkg@:4.2", when="platform=windows") and depends_on("pkg@4.3:", when="platform=windows")'
+                )
+            ],
         ),
         (
             [
-                (spec.Spec("pkg@:4.2"), spec.Spec("^python@:3.9"), ""),
-                (spec.Spec("pkg@4.3:"), spec.Spec("^python@3.9:"), ""),
+                (spec.Spec("pkg@:4.2"), spec.Spec("^python@:3.9"), {}),
+                (spec.Spec("pkg@4.3:"), spec.Spec("^python@3.9:"), {}),
             ],
-            False,
+            [
+                core.DependencyConflictError(
+                    'depends_on("pkg@:4.2", when="^python@:3.9") and depends_on("pkg@4.3:", when="^python@3.9:")'
+                )
+            ],
         ),
         (
             [
-                (spec.Spec("pkg@:4.2"), spec.Spec("^python@:3.8"), ""),
-                (spec.Spec("pkg@4.3:"), spec.Spec("^python@3.9:"), ""),
+                (spec.Spec("pkg@:4.2"), spec.Spec("^python@:3.8"), {}),
+                (spec.Spec("pkg@4.3:"), spec.Spec("^python@3.9:"), {}),
             ],
-            True,
+            [],
+        ),
+        (
+            [
+                (spec.Spec("pkg@:4.2"), spec.Spec("@:2.5 ^python@:3.9"), {}),
+                (spec.Spec("pkg@4.3:"), spec.Spec("@2: ^python@3.9:"), {}),
+            ],
+            [
+                core.DependencyConflictError(
+                    'depends_on("pkg@:4.2", when="@:2.5 ^python@:3.9") and depends_on("pkg@4.3:", when="@2: ^python@3.9:")'
+                )
+            ],
+        ),
+        (
+            [
+                (spec.Spec("pkg@:4.2"), spec.Spec("@:2.5 ^python@:3.9 platform=windows"), {}),
+                (spec.Spec("pkg@4.3:"), spec.Spec("@2: ^python@3.9: platform=linux"), {}),
+            ],
+            [],
         ),
     ],
 )
-def test_check_dependency_satisfiability(
-    dep_list: list[tuple[spec.Spec, spec.Spec, str]], expected: bool
+def test_find_dependency_satisfiability_conflicts(
+    dep_list: list[tuple[spec.Spec, spec.Spec, str]], expected: list[core.DependencyConflictError]
 ) -> None:
     """Unit tests for method."""
-    assert core._check_dependency_satisfiability(dep_list) == expected
+    assert core._find_dependency_satisfiability_conflicts(dep_list) == expected
 
 
 @pytest.mark.parametrize(
