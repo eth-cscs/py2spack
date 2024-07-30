@@ -153,7 +153,7 @@ def test_pypilookup_get_files():
     assert set(result_version_hashes) == set(expected_version_hashes)
 """
 
-# TODO:
+# TODO @davhofer:
 # _acceptable_version -> same as in conversion tools
 # PyPILookup functions: _get, get_versions, get_files
 # _extract_from_tar

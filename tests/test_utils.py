@@ -24,9 +24,9 @@ from py2spack import utils
         ),
     ],
 )
-def test_download_sdist(url: str) -> None:
+def test_download_bytes(url: str) -> None:
     """Unit tests for method."""
-    assert isinstance(utils.download_sdist(url), io.BytesIO)
+    assert isinstance(utils.download_bytes(url), io.BytesIO)
 
 
 @pytest.mark.parametrize(
@@ -43,9 +43,9 @@ def test_download_sdist(url: str) -> None:
         ),
     ],
 )
-def test_download_sdist_invalid(url: str) -> None:
+def test_download_bytes_invalid(url: str) -> None:
     """Unit tests for method."""
-    assert utils.download_sdist(url) is None
+    assert utils.download_bytes(url) is None
 
 
 def test_extract_from_tar_success() -> None:

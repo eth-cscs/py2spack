@@ -7,18 +7,12 @@ Parts of the code adapted from https://github.com/pypa/pyproject-metadata.
 from __future__ import annotations
 
 import re
-import typing
 from typing import Any
 
 from packaging import requirements, specifiers
 
 
 LICENSE_IDENTIFIER_LEN = 250
-
-
-if typing.TYPE_CHECKING:
-    import pathlib
-    from collections.abc import Mapping
 
 
 class ConfigurationError(Exception):
@@ -45,7 +39,7 @@ def _validate_license_txt(license_text: str) -> str | ConfigurationError:
 class DataFetcher:
     """Fetcher class for parsing and extracting the various metadata fields."""
 
-    def __init__(self, data: Mapping[str, Any]) -> None:
+    def __init__(self, data: dict[str, Any]) -> None:
         """Initialize DataFetcher with raw toml data (dictionary)."""
         self._data = data
 
@@ -162,7 +156,7 @@ class DataFetcher:
         requirements_list: list[requirements.Requirement] = []
         requirement_errors: list[ConfigurationError] = []
         for req in requirement_strings:
-            # TODO @davhofer: the requirements here of course SHOULD be formatted correctly...  # noqa: TD003
+            # TODO @davhofer: the requirements here of course SHOULD be formatted correctly...
             # but what if they are not
             try:
                 requirements_list.append(requirements.Requirement(req))
@@ -356,21 +350,6 @@ class DataFetcher:
                     return parsed_urls[key.lower()]
             return None
         return parsed_urls
-
-
-class License(typing.NamedTuple):
-    """Represents the project license."""
-
-    text: str
-    file: pathlib.Path | None
-
-
-class Readme(typing.NamedTuple):
-    """Represents the project README."""
-
-    text: str
-    file: pathlib.Path | None
-    content_type: str
 
 
 def valid_pypi_name(name: str) -> bool:

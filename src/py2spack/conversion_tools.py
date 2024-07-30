@@ -5,16 +5,17 @@ Parts of the code are adapted from Spack/Harmen Stoppels: https://github.com/spa
 
 from __future__ import annotations
 
+import functools
 import logging
 import re
 from typing import Any
 
 import packaging.version as pv
-import spack.error  # type: ignore[import-untyped]
-import spack.parser  # type: ignore[import-untyped]
+import spack.error
+import spack.parser
 from packaging import markers, requirements, specifiers
 from spack import spec, version as sv
-from spack.util import naming  # type: ignore[import-untyped]
+from spack.util import naming
 
 from py2spack import package_providers
 
@@ -59,10 +60,6 @@ class ConversionError(Exception):
     def requirement(self) -> str | None:
         """Get requirement."""
         return self._requirement
-
-
-# TODO @davhofer: integrate this into a datastructure, omit mutable global state  # noqa: TD003
-evalled: dict[tuple[str, specifiers.SpecifierSet], sv.VersionList] = {}
 
 
 def _get_python_versions() -> list[pv.Version]:
@@ -156,7 +153,7 @@ def _best_lowerbound(prev: sv.StandardVersion, curr: sv.StandardVersion) -> sv.S
 
 def packaging_to_spack_version(v: pv.Version) -> sv.StandardVersion:
     """Convert packaging version to equivalent spack version."""
-    # TODO @davhofer: better epoch support.  # noqa: TD003
+    # TODO @davhofer: better epoch support.
     release = []
     prerelease = [sv.common.FINAL]
     if v.epoch > 0:
@@ -228,7 +225,7 @@ def condensed_version_list(
     if len(subset_filtered) < len(_subset_of_versions) or len(all_versions_filtered) < len(
         _all_versions
     ):
-        # TODO @davhofer: this msg is displayed 100s of times. move it somewhere else and  # noqa: TD003
+        # TODO @davhofer: this msg is displayed 100s of times. move it somewhere else and
         # display it only once
         msg = (
             "Prereleases as well as post, dev, and local versions are not "
@@ -276,31 +273,26 @@ def condensed_version_list(
     return sv.VersionList(new_versions)
 
 
+@functools.cache
 def _pkg_specifier_set_to_version_list(
     pkg: str,
     specifier_set: specifiers.SpecifierSet,
     provider: package_providers.PyProjectProvider,
 ) -> sv.VersionList:
     """Convert the specifier set to an equivalent list of version ranges."""
-    # TODO @davhofer: improve how & where the caching is done?  # noqa: TD003
-    key = (pkg, specifier_set)
-    if key in evalled:
-        return evalled[key]
-
     all_versions = _get_python_versions() if pkg == "python" else provider.get_versions(pkg)
     result = sv.VersionList()
     if not isinstance(all_versions, package_providers.PyProjectProviderQueryError):
         matching = [s for s in all_versions if specifier_set.contains(s, prereleases=True)]
         if matching:
             result = condensed_version_list(matching, all_versions)
-    evalled[key] = result
     return result
 
 
 def _eval_python_version_marker(
     op: str, value: str, provider: package_providers.PyProjectProvider
 ) -> sv.VersionList | None:
-    # TODO @davhofer: there might be still some bug caused by python_version vs  # noqa: TD003
+    # TODO @davhofer: there might be still some bug caused by python_version vs
     # python_full_version differences.
     # Also `in` and `not in` are allowed, but difficult to get right. They take
     # the rhs as a string and do string matching instead of version parsing...
@@ -363,7 +355,7 @@ def _eval_platform_constraint(
             for p in platforms
             if (p != platform and op.value == "!=") or (p == platform and op.value == "==")
         ]
-    # TODO @davhofer: NOTE: in the case of != above, this will return a list of  # noqa: TD003
+    # TODO @davhofer: NOTE: in the case of != above, this will return a list of
     # [platform=windows, platform=linux, ...] => this means it is an OR of
     # the list... is this always the case? handled correctly?
 
@@ -407,7 +399,7 @@ def _eval_constraint(
         True/False: If constraint is statically true or false.
         List of specs: Spack representation of the constraint(s).
     """
-    # TODO @davhofer: os_name, platform_machine, platform_release, platform_version,  # noqa: TD003
+    # TODO @davhofer: os_name, platform_machine, platform_release, platform_version,
     # implementation_version
 
     # Operator
@@ -577,7 +569,7 @@ def evaluate_marker(
     return _do_evaluate_marker(m._markers, provider)
 
 
-# TODO @davhofer: verify whether spack name actually corresponds to PyPI package  # noqa: TD003
+# TODO @davhofer: verify whether spack name actually corresponds to PyPI package
 def pkg_to_spack_name(name: str) -> str:
     """Convert PyPI package name to Spack python package name."""
     spack_name: str = naming.simplify_name(name)

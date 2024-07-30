@@ -430,14 +430,14 @@ def test_convert_requirement(
 ) -> None:
     """Unit tests for method."""
     provider = package_providers.PyPIProvider()
-    result = conversion_tools._convert_requirement(req, provider, from_extra=from_extra)
+    result = conversion_tools.convert_requirement(req, provider, from_extra=from_extra)
     assert set(result) == set(expected)
 
 
 def test_convert_requirement_invalid() -> None:
     """Unit tests for method."""
     provider = package_providers.PyPIProvider()
-    result = conversion_tools._convert_requirement(
+    result = conversion_tools.convert_requirement(
         requirements.Requirement("black>=4.2,<4"), provider
     )
     assert isinstance(result, conversion_tools.ConversionError)

@@ -14,7 +14,7 @@ repos:
       # Run the linter.
       - id: ruff
         files: ^src/
-        args: [--fix, --config, "pyproject.toml"]
+        args: [--fix]
       # Run the formatter.
       - id: ruff-format
 
@@ -27,7 +27,7 @@ repos:
           - requests==2.32.3
           - tomli==2.0.1
           - types-requests==2.32.0.20240712
-        args: [--no-install-types, --config-file, "pyproject.toml"]
+        args: [--install-types, --non-interactive]
         exclude: |
           (?x)^(
           setup.py |

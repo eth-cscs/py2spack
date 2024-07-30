@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import io
 import tarfile
-from typing import Any
 
 import requests
 import tomli
@@ -14,8 +13,8 @@ HTTP_STATUS_SUCCESS = 200
 HTTP_STATUS_NOT_FOUND = 404
 
 
-def download_sdist(url: str) -> io.BytesIO | None:
-    """Download source distribution from url as BytesIO object (in memory)."""
+def download_bytes(url: str) -> io.BytesIO | None:
+    """Download file from url as BytesIO object (in memory)."""
     response = requests.get(url)
     if response.status_code == HTTP_STATUS_SUCCESS:
         return io.BytesIO(response.content)
@@ -23,7 +22,7 @@ def download_sdist(url: str) -> io.BytesIO | None:
     return None
 
 
-def extract_from_tar(file_like_object: io.BytesIO, file_path: str) -> dict[Any, Any] | None:
+def extract_from_tar(file_like_object: io.BytesIO, file_path: str) -> dict | None:
     """Extract pyproject.toml from tar archive.
 
     The top level directory name inside the archive must be given explicitly.

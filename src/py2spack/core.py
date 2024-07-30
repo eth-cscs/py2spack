@@ -2,15 +2,16 @@
 
 from __future__ import annotations
 
+import dataclasses
 import logging
 import pathlib
 import sys
-from typing import Any, TextIO
+from typing import TextIO
 
 import tomli
 from packaging import requirements, specifiers, version as pv
-from spack import spec, version as sv  # type: ignore[import-untyped]
-from spack.util import naming  # type: ignore[import-untyped]
+from spack import spec, version as sv
+from spack.util import naming
 
 from py2spack import conversion_tools, package_providers, pyproject_parsing
 
@@ -124,7 +125,7 @@ def _check_dependency_satisfiability(
 
                 if when1.intersects(when2) and (not dep1.intersects(dep2)):
                     sat = False
-                    # TODO @davhofer: should conflicts be collected and returned instead  # noqa: TD003
+                    # TODO @davhofer: should conflicts be collected and returned instead
                     # of printed to console?
                     msg = (
                         "uncompatible requirements for dependency "
@@ -155,6 +156,7 @@ def _people_to_strings(
     return people
 
 
+@dataclasses.dataclass
 class PyProject:
     """A class to represent a pyproject.toml file.
 
@@ -162,28 +164,32 @@ class PyProject:
     found in pyproject.toml. E.g. build-backend, build dependencies.
     """
 
-    def __init__(self) -> None:
-        """Initialize empty PyProject."""
-        self.name: str = ""
-        self.tool: dict[Any, Any] = {}
-        self.build_backend: str | None = None
-        self.build_requires: list[requirements.Requirement] = []
-        self.dynamic: list[str] = []
-        self.version: pv.Version = pv.Version("0")
-        self.description: str | None = None
-        self.requires_python: specifiers.SpecifierSet | None = None
-        self.license: str | None = None
-        self.authors: list[str] = []
-        self.maintainers: list[str] = []
-        self.dependencies: list[requirements.Requirement] = []
-        self.optional_dependencies: dict[str, list[requirements.Requirement]] = {}
-        self.homepage: str | None = None
-        self.metadata_errors: list[pyproject_parsing.ConfigurationError] = []
-        self.dependency_errors: list[pyproject_parsing.ConfigurationError] = []
+    name: str = ""
+    tool: dict = dataclasses.field(default_factory=dict)
+    build_backend: str | None = None
+    build_requires: list[requirements.Requirement] = dataclasses.field(default_factory=list)
+    dynamic: list[str] = dataclasses.field(default_factory=list)
+    version: pv.Version = dataclasses.field(default=pv.Version("0"))
+    description: str | None = None
+    requires_python: specifiers.SpecifierSet | None = None
+    license: str | None = None
+    authors: list[str] = dataclasses.field(default_factory=list)
+    maintainers: list[str] = dataclasses.field(default_factory=list)
+    dependencies: list[requirements.Requirement] = dataclasses.field(default_factory=list)
+    optional_dependencies: dict[str, list[requirements.Requirement]] = dataclasses.field(
+        default_factory=dict
+    )
+    homepage: str | None = None
+    metadata_errors: list[pyproject_parsing.ConfigurationError] = dataclasses.field(
+        default_factory=list
+    )
+    dependency_errors: list[pyproject_parsing.ConfigurationError] = dataclasses.field(
+        default_factory=list
+    )
 
     @classmethod
     def from_toml(
-        cls, path_or_data: str | dict[Any, Any], name: str, version: pv.Version
+        cls, path_or_data: str | dict, name: str, version: pv.Version
     ) -> PyProject | ParseError:
         """Create a PyProject instance from a pyproject.toml file.
 
@@ -303,6 +309,7 @@ class PyProject:
             self.dependency_errors.extend(errors)
 
 
+@dataclasses.dataclass
 class SpackPyPkg:
     """Class representing a Spack PythonPackage object.
 
@@ -310,95 +317,42 @@ class SpackPyPkg:
     PyProject fields and semantics to their Spack equivalents (where possible).
     """
 
-    def __init__(self) -> None:
-        """Initialize empty SpackPyPkg."""
-        self._name: str = ""
-        self._pypi_name: str = ""
-        self._description: str | None = None
-        self._pypi: str = ""
-        self._versions_with_checksum: list[tuple[sv.Version, str, str]] = []
-        self._versions_missing_checksum: list[sv.Version] = []
-        self._all_versions: list[pv.Version]
-        self._variants: set[str] = set()
-        self._maintainers: list[str] = []
-        self._authors: list[str] = []
-        self._license: str | None = None
-        self._homepage: str | None = None
-        self._dependencies_by_type: dict[str, list[tuple[spec.Spec, spec.Spec]]] = {}
-        self._file_parse_errors: list[tuple[str, ParseError]] = []
-        self._metadata_parse_errors: dict[str, list[pyproject_parsing.ConfigurationError]] = {}
-        self._dependency_parse_errors: dict[str, list[pyproject_parsing.ConfigurationError]] = {}
-        self._dependency_conversion_errors: dict[str, list[conversion_tools.ConversionError]] = {}
-        # map each unique dependency (dependency spec, when spec) to a
-        # list of package versions that have this dependency
-        self._specs_to_versions: dict[tuple[spec.Spec, spec.Spec], list[pv.Version]] = {}
-        # map dependencies to their dependency types (build, run, test, ...)
-        self._specs_to_types: dict[tuple[spec.Spec, spec.Spec], set[str]] = {}
-
-    @staticmethod
-    def convert_pkg(
-        name: str, provider: package_providers.PyProjectProvider, last_n_versions: int = 20
-    ) -> SpackPyPkg | None:
-        """Convert a PyPI package to a Spack package.py."""
-        # download available versions through provider (pypi, github)
-        versions = provider.get_versions(name)
-        if isinstance(versions, package_providers.PyProjectProviderQueryError):
-            logging.warning("No valid versions found by provider")
-            return None
-
-        # for each version, parse pyproject.toml
-        pyprojects = []
-        for v in versions:
-            pyproject_dict = provider.get_pyproject(name, v)
-            if isinstance(pyproject_dict, package_providers.PyProjectProviderQueryError):
-                msg = f"Unable to get pyproject.toml for {name} version {v}: {pyproject_dict}"
-                logging.warning(msg)
-                continue
-
-            pyproject = PyProject.from_toml(pyproject_dict, name, v)
-            if isinstance(pyproject, ParseError):
-                msg = f"Unable to parse pyproject.toml for {name} version {v}: {pyproject}"
-                logging.warning(msg)
-                continue
-
-            pyprojects.append(pyproject)
-
-        if not len(pyprojects):
-            msg = f"Conversion for {name} failed, no valid pyproject.tomls found"
-            logging.warning(msg)
-            return None
-
-        if last_n_versions != -1:
-            pyprojects = pyprojects[-last_n_versions:]
-
-        # convert to spack
-        spackpkg = SpackPyPkg()
-        spackpkg._all_versions = versions
-
-        if isinstance(provider, package_providers.PyPIProvider):
-            spackpkg._pypi = provider.get_pypi_package_base(name)
-
-        # get metadata from most recent version
-        spackpkg._metadata_from_pyproject(pyprojects[-1])
-
-        # get parsed versions with hashes (for display in package.py)
-        # reverse order s.t. newest version is on top in package.py
-        for p in reversed(pyprojects):
-            spack_version = conversion_tools.packaging_to_spack_version(p.version)
-            hashdict = provider.get_hash(name, p.version)
-            if isinstance(hashdict, dict) and hashdict:
-                hash_key, hash_value = next(iter(hashdict.items()))
-
-                if hash_key in SPACK_CHECKSUM_HASHES:
-                    spackpkg._versions_with_checksum.append((spack_version, hash_key, hash_value))
-                    continue
-
-            spackpkg._versions_missing_checksum.append(spack_version)
-
-        # convert all dependencies (for the selected versions)
-        spackpkg._dependencies_from_pyproject(pyprojects, provider)
-
-        return spackpkg
+    _name: str = ""
+    _pypi_name: str = ""
+    _description: str | None = None
+    _pypi: str = ""
+    _versions_with_checksum: list[tuple[sv.Version, str, str]] = dataclasses.field(
+        default_factory=list
+    )
+    _versions_missing_checksum: list[sv.Version] = dataclasses.field(default_factory=list)
+    _all_versions: list[pv.Version] = dataclasses.field(default_factory=list)
+    _variants: set[str] = dataclasses.field(default_factory=set)
+    _maintainers: list[str] = dataclasses.field(default_factory=list)
+    _authors: list[str] = dataclasses.field(default_factory=list)
+    _license: str | None = None
+    _homepage: str | None = None
+    _dependencies_by_type: dict[str, list[tuple[spec.Spec, spec.Spec]]] = dataclasses.field(
+        default_factory=dict
+    )
+    _file_parse_errors: list[tuple[str, ParseError]] = dataclasses.field(default_factory=list)
+    _metadata_parse_errors: dict[str, list[pyproject_parsing.ConfigurationError]] = (
+        dataclasses.field(default_factory=dict)
+    )
+    _dependency_parse_errors: dict[str, list[pyproject_parsing.ConfigurationError]] = (
+        dataclasses.field(default_factory=dict)
+    )
+    _dependency_conversion_errors: dict[str, list[conversion_tools.ConversionError]] = (
+        dataclasses.field(default_factory=dict)
+    )
+    # map each unique dependency (dependency spec, when spec) to a
+    # list of package versions that have this dependency
+    _specs_to_versions: dict[tuple[spec.Spec, spec.Spec], list[pv.Version]] = dataclasses.field(
+        default_factory=dict
+    )
+    # map dependencies to their dependency types (build, run, test, ...)
+    _specs_to_types: dict[tuple[spec.Spec, spec.Spec], set[str]] = dataclasses.field(
+        default_factory=dict
+    )
 
     def _metadata_from_pyproject(self, pyproject: PyProject) -> None:
         """Load and convert main metadata from given PyProject instance.
@@ -689,6 +643,71 @@ class SpackPyPkg:
         print("", file=outfile)
 
 
+def convert_pkg(
+    name: str, provider: package_providers.PyProjectProvider, last_n_versions: int = 20
+) -> SpackPyPkg | None:
+    """Convert a PyPI package to a Spack package.py."""
+    # download available versions through provider (pypi, github)
+    versions = provider.get_versions(name)
+    if isinstance(versions, package_providers.PyProjectProviderQueryError):
+        logging.warning("No valid versions found by provider")
+        return None
+
+    # for each version, parse pyproject.toml
+    pyprojects = []
+    for v in versions:
+        pyproject_dict = provider.get_pyproject(name, v)
+        if isinstance(pyproject_dict, package_providers.PyProjectProviderQueryError):
+            msg = f"Unable to get pyproject.toml for {name} version {v}: {pyproject_dict}"
+            logging.warning(msg)
+            continue
+
+        pyproject = PyProject.from_toml(pyproject_dict, name, v)
+        if isinstance(pyproject, ParseError):
+            msg = f"Unable to parse pyproject.toml for {name} version {v}: {pyproject}"
+            logging.warning(msg)
+            continue
+
+        pyprojects.append(pyproject)
+
+    if not len(pyprojects):
+        msg = f"Conversion for {name} failed, no valid pyproject.tomls found"
+        logging.warning(msg)
+        return None
+
+    if last_n_versions != -1:
+        pyprojects = pyprojects[-last_n_versions:]
+
+    # convert to spack
+    spackpkg = SpackPyPkg()
+    spackpkg._all_versions = versions
+
+    if isinstance(provider, package_providers.PyPIProvider):
+        spackpkg._pypi = provider.get_pypi_package_base(name)
+
+    # get metadata from most recent version
+    spackpkg._metadata_from_pyproject(pyprojects[-1])
+
+    # get parsed versions with hashes (for display in package.py)
+    # reverse order s.t. newest version is on top in package.py
+    for p in reversed(pyprojects):
+        spack_version = conversion_tools.packaging_to_spack_version(p.version)
+        hashdict = provider.get_sdist_hash(name, p.version)
+        if isinstance(hashdict, dict) and hashdict:
+            hash_key, hash_value = next(iter(hashdict.items()))
+
+            if hash_key in SPACK_CHECKSUM_HASHES:
+                spackpkg._versions_with_checksum.append((spack_version, hash_key, hash_value))
+                continue
+
+        spackpkg._versions_missing_checksum.append(spack_version)
+
+    # convert all dependencies (for the selected versions)
+    spackpkg._dependencies_from_pyproject(pyprojects, provider)
+
+    return spackpkg
+
+
 if __name__ == "__main__":
     old = """
     pprojects = []
@@ -720,10 +739,13 @@ if __name__ == "__main__":
 
     """
 
-    provider = package_providers.PyPIProvider()
+    provider = package_providers.PyPIProvider()  # type: ignore[abstract]
+    # Explanation of ignore: PyProjectProvider protocol requires the __hash__() method
+    # to be implemented, which is done by the @dataclass decorator for PyPIProvider (but
+    # mypy does not detect this)
 
     # convert to spack
-    spack_pkg = SpackPyPkg.convert_pkg("pandas", provider, last_n_versions=20)
+    spack_pkg = convert_pkg("pandas", provider, last_n_versions=20)
 
     if spack_pkg is None:
         logging.warning("Could not generate spack package from PyProject")
