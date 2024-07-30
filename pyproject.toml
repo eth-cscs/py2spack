@@ -104,7 +104,9 @@ extend-select = [
   "T20",  # flake8-print
   "TCH",  # flake8-type-checking
 ]
-ignore = []
+ignore = [
+    "TD003", # [missing-todo-link]
+]
 
 
 [tool.ruff.lint.pydocstyle]
@@ -169,6 +171,14 @@ warn_return_any = true
 warn_unreachable = true
 warn_unused_configs = true
 warn_unused_ignores = true
+
+[[tool.mypy.overrides]]
+disallow_incomplete_defs = false
+disallow_untyped_defs = false
+ignore_missing_imports = true
+module = [
+  "spack.*",
+]
 
 [tool.pytest.ini_options]
 minversion = "6.0"

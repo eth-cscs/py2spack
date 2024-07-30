@@ -1,24 +1,39 @@
-"""Tests for loading.py module."""
-from __future__ import annotations
+"""Tests for package_providers.py module."""
 
-import io
+from __future__ import annotations
 
 import pytest
 from packaging import version as pv
 
-from py2spack import loading
+from py2spack import package_providers
 
 
 @pytest.mark.parametrize(
-    "filename, expected",
+    ("version_str", "expected"),
+    [
+        ("4.3.2.5.4", pv.Version("4.3.2.5.4")),
+        ("2..4", None),
+        ("2", pv.Version("2")),
+        ("4.dev2", pv.Version("4.dev2")),
+        ("3.pre.dev2", None),
+    ],
+)
+def test_acceptable_version(version_str: str, expected: pv.Version | None) -> None:
+    """Unit tests for method."""
+    assert package_providers._parse_packaging_version(version_str) == expected
+
+
+@pytest.mark.parametrize(
+    ("filename", "expected"),
     [
         ("black-24.4.2.tar.gz", ".tar.gz"),
         ("package-1.gz", ".gz"),
         ("python-3.4.5-alpha6.tar.bz2", ".tar.bz2"),
     ],
 )
-def test_parse_archive_extension(filename, expected):
-    assert loading._parse_archive_extension(filename) == expected
+def test_parse_archive_extension(filename: str, expected: str) -> None:
+    """Unit tests for method."""
+    assert package_providers._parse_archive_extension(filename) == expected
 
 
 @pytest.mark.parametrize(
@@ -28,14 +43,16 @@ def test_parse_archive_extension(filename, expected):
         ("pkg-0.0.1.whl"),
     ],
 )
-def test_parse_archive_extension_invalid(filename):
+def test_parse_archive_extension_invalid(filename: str) -> None:
+    """Unit tests for method."""
     assert isinstance(
-        loading._parse_archive_extension(filename), loading.APIError
+        package_providers._parse_archive_extension(filename),
+        package_providers.PyProjectProviderQueryError,
     )
 
 
 @pytest.mark.parametrize(
-    "filename, pkg_name, archive_ext, expected",
+    ("filename", "pkg_name", "archive_ext", "expected"),
     [
         ("black-24.4.2.tar.gz", "black", ".tar.gz", pv.Version("24.4.2")),
         ("package-1.gz", "package", ".gz", pv.Version("1")),
@@ -51,44 +68,13 @@ def test_parse_archive_extension_invalid(filename):
         ("black-otherpackage-24.4.2.tar.gz", "black", ".tar.gz", None),
     ],
 )
-def test_parse_version(filename, pkg_name, archive_ext, expected):
-    assert loading._parse_version(filename, pkg_name, archive_ext) == expected
-
-
-@pytest.mark.parametrize(
-    "url",
-    [
-        (
-            "https://files.pythonhosted.org/packages/a2/47/c9997eb470a7f48f7aaddd3d9a828244a2e4199569e38128715c48059ac1/black-24.4.2.tar.gz"
-        ),
-        (
-            "https://files.pythonhosted.org/packages/36/bf/a462f36723824c60dc3db10528c95656755964279a6a5c287b4f9fd0fa84/black-23.10.1.tar.gz"
-        ),
-        (
-            "https://files.pythonhosted.org/packages/5a/c0/b7599d6e13fe0844b0cda01b9aaef9a0e87dbb10b06e4ee255d3fa1c79a2/tqdm-4.66.4.tar.gz"
-        ),
-    ],
-)
-def test_download_sdist(url):
-    assert isinstance(loading._download_sdist(url), io.BytesIO)
-
-
-@pytest.mark.parametrize(
-    "url",
-    [
-        (
-            "https://files.pythonhosted.org/packages/a2/47/c9997eb470a7f48f7aaddd3d9a828244a2e4199569e38128715c48059ac1/INVALID-PACKAGE-black-24.4.2.tar.gz"
-        ),
-        (
-            "https://files.pythonhosted.org/packages/36/bf/a462f36723824c60dc3db10528c95656755964279a6a5c287b4f9fd0fa84/black-23.10.1.tar.gz.xyz"
-        ),
-        (
-            "https://files.pythonhosted.org/packages/5a/c0/b7599d6e13fe0844b0cda01b9aaef9a0e87dbb10b06e4ee255d3fa1c79a2/tqdm-4.66.4.tar.gz.c.b.a.a"
-        ),
-    ],
-)
-def test_download_sdist_invalid(url):
-    assert isinstance(loading._download_sdist(url), loading.APIError)
+def test_parse_version_from_filename(
+    filename: str, pkg_name: str, archive_ext: str, expected: pv.Version | None
+) -> None:
+    """Unit tests for method."""
+    assert (
+        package_providers._parse_version_from_filename(filename, pkg_name, archive_ext) == expected
+    )
 
 
 tmptst = """
@@ -167,7 +153,7 @@ def test_pypilookup_get_files():
     assert set(result_version_hashes) == set(expected_version_hashes)
 """
 
-# TODO:
+# TODO @davhofer:
 # _acceptable_version -> same as in conversion tools
 # PyPILookup functions: _get, get_versions, get_files
 # _extract_from_tar

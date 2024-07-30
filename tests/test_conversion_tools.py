@@ -1,16 +1,16 @@
 """Tests for conversion_tools.py module."""
+
 from __future__ import annotations
 
 import pytest
 from packaging import markers, requirements, specifiers, version as pv
 from spack import spec, version as sv
 
-from py2spack import conversion_tools, loading
-
+from py2spack import conversion_tools, package_providers
 
 
 @pytest.mark.parametrize(
-    "prev, curr",
+    ("prev", "curr"),
     [
         # ("23.1-alpha1", "23.1.0"),
         # ("23.1-alpha1", "23.1"),
@@ -24,7 +24,8 @@ from py2spack import conversion_tools, loading
         ("22.1.3", "22.1.4"),
     ],
 )
-def test_best_lowerbound(prev, curr):
+def test_best_lowerbound(prev: str, curr: str) -> None:
+    """Unit tests for method."""
     prev = sv.Version(prev)
     curr = sv.Version(curr)
 
@@ -36,7 +37,7 @@ def test_best_lowerbound(prev, curr):
 
 
 @pytest.mark.parametrize(
-    "curr, nxt",
+    ("curr", "nxt"),
     [
         # ("23.1-alpha1", "23.1.0"),
         # ("23.1-alpha1", "23.1"),
@@ -50,7 +51,8 @@ def test_best_lowerbound(prev, curr):
         ("22.1.3", "22.1.4"),
     ],
 )
-def test_best_upperbound(curr, nxt):
+def test_best_upperbound(curr: str, nxt: str) -> None:
+    """Unit tests for method."""
     curr = sv.Version(curr)
     nxt = sv.Version(nxt)
 
@@ -62,32 +64,20 @@ def test_best_upperbound(curr, nxt):
 
 
 @pytest.mark.parametrize(
-    "version_str, expected",
-    [
-        ("4.3.2.5.4", pv.Version("4.3.2.5.4")),
-        ("2..4", None),
-        ("2", pv.Version("2")),
-        ("4.dev2", pv.Version("4.dev2")),
-        ("3.pre.dev2", None),
-    ],
-)
-def test_acceptable_version(version_str, expected):
-    assert conversion_tools.acceptable_version(version_str) == expected
-
-
-@pytest.mark.parametrize(
-    "version, expected",
+    ("version", "expected"),
     [
         (pv.Version("2"), sv.Version("2")),
         (pv.Version("4.3.2.0"), sv.Version("4.3.2.0")),
         (pv.Version("4.dev2"), sv.Version("4.dev2")),
     ],
 )
-def test_packaging_to_spack_version(version, expected):
+def test_packaging_to_spack_version(version: pv.Version, expected: sv.Version) -> None:
+    """Unit tests for method."""
     assert conversion_tools.packaging_to_spack_version(version) == expected
 
 
-def test_condensed_version_list_specific1():
+def test_condensed_version_list_specific1() -> None:
+    """Unit tests for method."""
     subset = [pv.Version("2.0.1"), pv.Version("2.1.0")]
     all_versions = [
         pv.Version("2.0.1"),
@@ -101,7 +91,8 @@ def test_condensed_version_list_specific1():
     assert sv.Version("2.1.0") in result
 
 
-def test_condensed_version_list_specific2():
+def test_condensed_version_list_specific2() -> None:
+    """Unit tests for method."""
     subset = ["2.0", "2.1"]
     all_versions = [
         "2.0",
@@ -122,7 +113,8 @@ def test_condensed_version_list_specific2():
         assert v_spack not in result
 
 
-def test_condensed_version_list_specific3():
+def test_condensed_version_list_specific3() -> None:
+    """Unit tests for method."""
     subset = ["2.0.0", "2.1"]
     all_versions = [
         "2.0.0",
@@ -143,7 +135,8 @@ def test_condensed_version_list_specific3():
         assert v_spack not in result
 
 
-def test_condensed_version_list():
+def test_condensed_version_list() -> None:
+    """Unit tests for method."""
     subset = ["2.0", "3.5", "4.2", "2.0.1", "2.1.0", "1.9"]
     all_versions = [
         "2.0",
@@ -198,7 +191,7 @@ BLACK_VERSIONS = [
 
 
 @pytest.mark.parametrize(
-    "specifier_set, expect_included",
+    ("specifier_set", "expect_included"),
     [
         (specifiers.SpecifierSet("==23.2"), []),
         (
@@ -251,28 +244,24 @@ BLACK_VERSIONS = [
     ],
 )
 def test_pkg_specifier_set_to_version_list(
-    specifier_set,
-    expect_included,
-):
-    """.
+    specifier_set: specifiers.SpecifierSet,
+    expect_included: list[str],
+) -> None:
+    """Unit tests for method.
 
     We use the package black, with versions limited to the range 22 <= v < 24
     for reproducibility even when black adds versions.
     """
-    lookup = loading.PyPILookup()
+    provider = package_providers.PyPIProvider()
 
     specifier_set &= specifiers.SpecifierSet(">=22")
     specifier_set &= specifiers.SpecifierSet("<24")
 
-    result = conversion_tools._pkg_specifier_set_to_version_list(
-        "black", specifier_set, lookup
-    )
+    result = conversion_tools._pkg_specifier_set_to_version_list("black", specifier_set, provider)
 
     sv_included = [sv.Version(v) for v in expect_included]
 
-    expect_excluded = list(
-        filter(lambda x: x not in expect_included, BLACK_VERSIONS)
-    )
+    expect_excluded = list(filter(lambda x: x not in expect_included, BLACK_VERSIONS))
     sv_excluded = [sv.Version(v) for v in expect_excluded]
 
     for v in sv_included:
@@ -283,7 +272,7 @@ def test_pkg_specifier_set_to_version_list(
 
 
 @pytest.mark.parametrize(
-    "marker, expected",
+    ("marker", "expected"),
     [
         (markers.Marker("implementation_name == 'cpython'"), True),
         (markers.Marker("platform_python_implementation != 'cpython'"), False),
@@ -302,15 +291,11 @@ def test_pkg_specifier_set_to_version_list(
         ),
         (markers.Marker("sys_platform != 'obscure_platform'"), True),
         (
-            markers.Marker(
-                "sys_platform == 'linux' or sys_platform == 'windows'"
-            ),
+            markers.Marker("sys_platform == 'linux' or sys_platform == 'windows'"),
             [spec.Spec("platform=linux"), spec.Spec("platform=windows")],
         ),
         (
-            markers.Marker(
-                "sys_platform != 'linux' and sys_platform != 'windows'"
-            ),
+            markers.Marker("sys_platform != 'linux' and sys_platform != 'windows'"),
             [
                 spec.Spec("platform=freebsd"),
                 spec.Spec("platform=cray"),
@@ -326,21 +311,15 @@ def test_pkg_specifier_set_to_version_list(
             [spec.Spec("^python@:3.8")],
         ),
         (
-            markers.Marker(
-                "python_full_version < '3.9' and python_version > '3.9'"
-            ),
+            markers.Marker("python_full_version < '3.9' and python_version > '3.9'"),
             False,
         ),
         (
-            markers.Marker(
-                "python_version >= '3.8' and sys_platform == 'linux'"
-            ),
+            markers.Marker("python_version >= '3.8' and sys_platform == 'linux'"),
             [spec.Spec("platform=linux ^python@3.8:")],
         ),
         (
-            markers.Marker(
-                "python_version >= '3.10' or sys_platform == 'windows'"
-            ),
+            markers.Marker("python_version >= '3.10' or sys_platform == 'windows'"),
             [spec.Spec("^python@3.10:"), spec.Spec("platform=windows")],
         ),
         (markers.Marker("extra == 'extension'"), [spec.Spec("+extension")]),
@@ -355,9 +334,12 @@ def test_pkg_specifier_set_to_version_list(
         ),
     ],
 )
-def test_evaluate_marker(marker, expected):
-    lookup = loading.PyPILookup()
-    result = conversion_tools.evaluate_marker(marker, lookup)
+def test_evaluate_marker(
+    marker: markers.Marker, expected: list[spec.Spec] | set[spec.Spec] | bool
+) -> None:
+    """Unit tests for method."""
+    provider = package_providers.PyPIProvider()
+    result = conversion_tools.evaluate_marker(marker, provider)
 
     if isinstance(expected, list):
         assert isinstance(result, list)
@@ -366,8 +348,9 @@ def test_evaluate_marker(marker, expected):
 
     assert result == expected
 
+
 @pytest.mark.parametrize(
-    "req, from_extra, expected",
+    ("req", "from_extra", "expected"),
     [
         (
             requirements.Requirement("black>=24.2"),
@@ -396,8 +379,7 @@ def test_evaluate_marker(marker, expected):
         ),
         (
             requirements.Requirement(
-                "black>=24.2; python_version >= '3.8' and sys_platform =="
-                " 'linux'"
+                "black>=24.2; python_version >= '3.8' and sys_platform ==" " 'linux'"
             ),
             "test",
             [
@@ -409,8 +391,7 @@ def test_evaluate_marker(marker, expected):
         ),
         (
             requirements.Requirement(
-                "black>=24.2; python_version >= '3.8' or sys_platform =="
-                " 'windows'"
+                "black>=24.2; python_version >= '3.8' or sys_platform ==" " 'windows'"
             ),
             None,
             [
@@ -442,21 +423,28 @@ def test_evaluate_marker(marker, expected):
         ),
     ],
 )
-def test_convert_requirement(req, from_extra, expected):
-    lookup = loading.PyPILookup()
-    result = conversion_tools._convert_requirement(req, lookup, from_extra=from_extra)
+def test_convert_requirement(
+    req: requirements.Requirement,
+    from_extra: str | None,
+    expected: list[tuple[spec.Spec, spec.Spec]],
+) -> None:
+    """Unit tests for method."""
+    provider = package_providers.PyPIProvider()
+    result = conversion_tools.convert_requirement(req, provider, from_extra=from_extra)
     assert set(result) == set(expected)
 
 
-def test_convert_requirement_invalid():
-    lookup = loading.PyPILookup()
-    result = conversion_tools._convert_requirement(
-        requirements.Requirement("black>=4.2,<4"), lookup
+def test_convert_requirement_invalid() -> None:
+    """Unit tests for method."""
+    provider = package_providers.PyPIProvider()
+    result = conversion_tools.convert_requirement(
+        requirements.Requirement("black>=4.2,<4"), provider
     )
     assert isinstance(result, conversion_tools.ConversionError)
 
+
 @pytest.mark.parametrize(
-    "name, expected",
+    ("name", "expected"),
     [
         ("python", "python"),
         ("package", "py-package"),
@@ -465,6 +453,6 @@ def test_convert_requirement_invalid():
         ("py-cpuinfo", "py-py-cpuinfo"),
     ],
 )
-def test_pkg_to_spack_name(name, expected):
+def test_pkg_to_spack_name(name: str, expected: str) -> None:
+    """Unit tests for method."""
     assert conversion_tools.pkg_to_spack_name(name) == expected
-
