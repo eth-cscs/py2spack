@@ -38,8 +38,11 @@ def _parse_packaging_version(version: str) -> vn.Version | None:
     return result
 
 
-class PyProjectProviderQueryError(Exception):
+@dataclasses.dataclass(frozen=True)
+class PyProjectProviderQueryError:
     """Error during querying of the PyProjectProvider."""
+
+    msg: str
 
 
 class PyProjectProvider(Protocol, Hashable):

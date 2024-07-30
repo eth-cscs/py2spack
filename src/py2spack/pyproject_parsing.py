@@ -6,6 +6,7 @@ Parts of the code adapted from https://github.com/pypa/pyproject-metadata.
 
 from __future__ import annotations
 
+import dataclasses
 import re
 from typing import Any
 
@@ -15,24 +16,20 @@ from packaging import requirements, specifiers
 LICENSE_IDENTIFIER_LEN = 250
 
 
-class ConfigurationError(Exception):
+@dataclasses.dataclass(frozen=True)
+class ConfigurationError:
     """Error in the backend metadata."""
 
-    def __init__(self, msg: str, *, key: str | None = None):
-        """Initialize error."""
-        super().__init__(msg)
-        self._key = key
-
-    @property
-    def key(self) -> str | None:  # pragma: no cover
-        """Get key."""
-        return self._key
+    msg: str
+    key: str | None = None
 
 
 def _validate_license_txt(license_text: str) -> str | ConfigurationError:
     if len(license_text) > LICENSE_IDENTIFIER_LEN:
-        msg = "License text appears to be full license content instead of " "license identifier"
-        return ConfigurationError(msg, key="project.license")
+        return ConfigurationError(
+            "License text appears to be full license content instead of license identifier",
+            key="project.license",
+        )
     return license_text
 
 
@@ -73,8 +70,9 @@ class DataFetcher:
         try:
             val = self.get(key)
             if not isinstance(val, str):
-                msg = f'Field "{key}" has an invalid type, ' f'expecting a string (got "{val}")'
-                return ConfigurationError(msg, key=key)
+                return ConfigurationError(
+                    f'Field "{key}" has an invalid type, expecting a string (got "{val}")', key=key
+                )
             return val
         except KeyError:
             return None
@@ -84,18 +82,19 @@ class DataFetcher:
         try:
             val = self.get(key)
             if not isinstance(val, list):
-                msg = (
+                return ConfigurationError(
                     f'Field "{key}" has an invalid type, expecting a list '
-                    f'of strings (got "{val}")'
+                    f'of strings (got "{val}")',
+                    key=val,
                 )
-                return ConfigurationError(msg, key=val)
+
             for item in val:
                 if not isinstance(item, str):
-                    msg = (
+                    return ConfigurationError(
                         f'Field "{key}" contains item with invalid type,'
-                        f' expecting a string (got "{item}")'
+                        f' expecting a string (got "{item}")',
+                        key=key,
                     )
-                    return ConfigurationError(msg, key=key)
             return val
         except KeyError:
             return []
@@ -105,18 +104,18 @@ class DataFetcher:
         try:
             val = self.get(key)
             if not isinstance(val, dict):
-                msg = (
+                return ConfigurationError(
                     f'Field "{key}" has an invalid type, expecting a dictionary'
-                    f' of strings (got "{val}")'
+                    f' of strings (got "{val}")',
+                    key=key,
                 )
-                return ConfigurationError(msg, key=key)
             for subkey, item in val.items():
                 if not isinstance(item, str):
-                    msg = (
+                    return ConfigurationError(
                         f'Field "{key}.{subkey}" has an invalid type, expecting'
-                        f' a string (got "{item}")'
+                        f' a string (got "{item}")',
+                        key=f"{key}.{subkey}",
                     )
-                    return ConfigurationError(msg, key=f"{key}.{subkey}")
             return val
         except KeyError:
             return {}
@@ -134,12 +133,12 @@ class DataFetcher:
                     for item in items
                 )
             ):
-                msg = (
+                return ConfigurationError(
                     f'Field "{key}" has an invalid type, expecting a list of '
                     'dictionaries containing the "name" and/or "email" keys '
-                    f'(got "{val}")'
+                    f'(got "{val}")',
+                    key=key,
                 )
-                return ConfigurationError(msg, key=key)
             return [(entry.get("name"), entry.get("email")) for entry in val]
         except KeyError:
             return []
@@ -161,11 +160,13 @@ class DataFetcher:
             try:
                 requirements_list.append(requirements.Requirement(req))
             except requirements.InvalidRequirement:  # noqa: PERF203
-                msg = (
-                    'Field "project.dependencies" contains an invalid PEP 508 '
-                    f'requirement string "{req}"'
+                requirement_errors.append(
+                    ConfigurationError(
+                        'Field "project.dependencies" contains an invalid PEP 508 '
+                        f'requirement string "{req}"',
+                        key="project.dependencies",
+                    )
                 )
-                requirement_errors.append(ConfigurationError(msg, key="project.dependencies"))
         return (requirements_list, requirement_errors)
 
     def get_optional_dependencies(
@@ -181,59 +182,59 @@ class DataFetcher:
             return {}, []
 
         if not isinstance(val, dict):
-            msg = (
+            return ConfigurationError(
                 'Field "project.optional-dependencies" has an invalid type, '
                 "expecting a dictionary of PEP 508 requirement strings "
-                f'(got "{val}")'
+                f'(got "{val}")',
+                key="project.optional-dependences",
             )
-            return ConfigurationError(msg, key="project.optional-dependences")
 
         requirements_dict: dict[str, list[requirements.Requirement]] = {}
         requirement_errors: list[ConfigurationError] = []
         for extra, requirements_list in val.copy().items():
             if not isinstance(extra, str):
-                msg = (
-                    "Field project.optional-dependencies contains extra of "
-                    f"invalid type, expected string (got '{extra}')"
-                )
                 requirement_errors.append(
-                    ConfigurationError(msg, key="project.optional-dependencies")
+                    ConfigurationError(
+                        "Field project.optional-dependencies contains extra of "
+                        f"invalid type, expected string (got '{extra}')",
+                        key="project.optional-dependencies",
+                    )
                 )
                 continue
 
             if not isinstance(requirements_list, list):
-                msg = (
-                    f'Field "project.optional-dependencies.{extra}" has an '
-                    f"invalid type, expecting a dictionary PEP 508 requirement "
-                    f'strings (got "{requirements_list}")'
-                )
                 requirement_errors.append(
-                    ConfigurationError(msg, key="project.optional-dependencies")
+                    ConfigurationError(
+                        f'Field "project.optional-dependencies.{extra}" has an '
+                        f"invalid type, expecting a dictionary PEP 508 requirement "
+                        f'strings (got "{requirements_list}")',
+                        key="project.optional-dependencies",
+                    )
                 )
                 continue
 
             requirements_dict[extra] = []
             for req in requirements_list:
                 if not isinstance(req, str):
-                    msg = (
-                        f'Field "project.optional-dependencies.{extra}" has an '
-                        "invalid type, expecting a PEP 508 requirement string "
-                        f'(got "{req}")'
-                    )
                     requirement_errors.append(
-                        ConfigurationError(msg, key="project.optional-dependencies")
+                        ConfigurationError(
+                            f'Field "project.optional-dependencies.{extra}" has an '
+                            "invalid type, expecting a PEP 508 requirement string "
+                            f'(got "{req}")',
+                            key="project.optional-dependencies",
+                        )
                     )
                     continue
                 try:
                     requirements_dict[extra].append(requirements.Requirement(req))
                 except requirements.InvalidRequirement:
-                    msg = (
-                        f'Field "project.optional-dependencies.{extra}" '
-                        "contains an invalid PEP 508 requirement string "
-                        f'"{req}"'
-                    )
                     requirement_errors.append(
-                        ConfigurationError(msg, key="project.optional-dependencies")
+                        ConfigurationError(
+                            f'Field "project.optional-dependencies.{extra}" '
+                            "contains an invalid PEP 508 requirement string "
+                            f'"{req}"',
+                            key="project.optional-dependencies",
+                        )
                     )
                     continue
         return (dict(requirements_dict), requirement_errors)
@@ -303,11 +304,11 @@ class DataFetcher:
             try:
                 return specifiers.SpecifierSet(parsed_requires_python)
             except specifiers.InvalidSpecifier:
-                msg = (
+                return ConfigurationError(
                     'Field "project.requires-python" contains an invalid PEP '
-                    f'508 requirement string "{parsed_requires_python}"'
+                    f'508 requirement string "{parsed_requires_python}"',
+                    key="project.requires-python",
                 )
-                return ConfigurationError(msg, key="project.requires-python")
 
         # if parsed_requires_python is None or ConfigurationError
         return parsed_requires_python
@@ -327,11 +328,13 @@ class DataFetcher:
             try:
                 requirements_list.append(requirements.Requirement(req))
             except requirements.InvalidRequirement as e:  # noqa: PERF203
-                msg = (
-                    'Field "build-system.requires" contains an invalid PEP 508 '
-                    f'requirement string "{req}" ("{e}")'
+                requirement_errors.append(
+                    ConfigurationError(
+                        'Field "build-system.requires" contains an invalid PEP 508 '
+                        f'requirement string "{req}" ("{e}")',
+                        key="build-system.requires",
+                    )
                 )
-                requirement_errors.append(ConfigurationError(msg, key="build-system.requires"))
         return (requirements_list, requirement_errors)
 
     def get_build_backend(self) -> str | None | ConfigurationError:

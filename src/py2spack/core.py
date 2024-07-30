@@ -8,7 +8,6 @@ import pathlib
 import sys
 from typing import TextIO
 
-import tomli
 from packaging import requirements, specifiers, version as pv
 from spack import spec, version as sv
 from spack.util import naming
@@ -22,7 +21,8 @@ PRINT_PKG_TO_FILE = False
 SPACK_CHECKSUM_HASHES = ["md5", "sha1", "sha224", "sha256", "sha384", "sha512"]
 
 
-class ParseError(Exception):
+@dataclasses.dataclass(frozen=True)
+class ParseError:
     """Error in parsing a pyproject.toml file.
 
     This error is not recoverable from, it means that the pyproject.toml file
@@ -30,34 +30,10 @@ class ParseError(Exception):
     which only affects some portion of the pyproject.toml parsing).
     """
 
-    def __init__(
-        self,
-        msg: str,
-        *,
-        file: str | None = None,
-        pkg_name: str | None = None,
-        pkg_version: str | None = None,
-    ):
-        """Initialize error."""
-        super().__init__(msg)
-        self._file = file
-        self._pkg_name = pkg_name
-        self._pkg_version = pkg_version
-
-    @property
-    def file(self) -> str | None:
-        """Get file."""
-        return self._file
-
-    @property
-    def pkg_name(self) -> str | None:
-        """Get package name."""
-        return self._pkg_name
-
-    @property
-    def pkg_version(self) -> str | None:
-        """Get package version."""
-        return self._pkg_version
+    msg: str
+    file: str | None = None
+    pkg_name: str | None = None
+    pkg_version: str | None = None
 
 
 def _format_dependency(
@@ -77,24 +53,24 @@ def _format_dependency(
     Returns:
         Formatted "depends_on(...)" statement for package.py.
     """
-    s = f'depends_on("{dependency_spec!s}"'
+    prefix = f'depends_on("{dependency_spec!s}"'
 
+    when_str = ""
     if when_spec is not None and when_spec != spec.Spec():
         if when_spec.architecture:
             platform_str = f"platform={when_spec.platform}"
             when_spec.architecture = None
         else:
             platform_str = ""
-        when_str = f"{platform_str} {when_spec!s}".strip()
-        s += f', when="{when_str}"'
+        when_str_inner = f"{platform_str} {when_spec!s}".strip()
+        when_str = f', when="{when_str_inner}"'
 
+    type_str = ""
     if dep_types is not None:
-        typestr = '", "'.join(dep_types)
-        s += f', type=("{typestr}")'
+        type_str_inner = '", "'.join(dep_types)
+        type_str = f', type=("{type_str_inner}")'
 
-    s += ")"
-
-    return s
+    return f"{prefix}{when_str}{type_str})"
 
 
 def _check_dependency_satisfiability(
@@ -111,6 +87,7 @@ def _check_dependency_satisfiability(
     or "if the dependency specs intersetct, then the when specs have to
     intersect too".
     """
+    # TODO @davhofer: refactor, return list of conflicts
     sat: bool = True
 
     dependency_names = list({dep[0].name for dep in dependency_list if dep[0].name is not None})
@@ -189,7 +166,7 @@ class PyProject:
 
     @classmethod
     def from_toml(
-        cls, path_or_data: str | dict, name: str, version: pv.Version
+        cls, file_content: dict, name: str, version: pv.Version
     ) -> PyProject | ParseError:
         """Create a PyProject instance from a pyproject.toml file.
 
@@ -206,31 +183,25 @@ class PyProject:
         Returns:
             A PyProject instance.
         """
-        if isinstance(path_or_data, str):
-            path = pathlib.Path(path_or_data)
-            try:
-                with path.open("rb") as f:
-                    data = tomli.load(f)
-            except (OSError, FileNotFoundError) as e:
-                msg = f"Failed to read pyproject.toml, skipping file. Error: {e}"
-                return ParseError(msg, pkg_name=name, pkg_version=str(version))
-        else:
-            data = path_or_data
-
         pyproject = PyProject()
-        fetcher = pyproject_parsing.DataFetcher(data)
+        fetcher = pyproject_parsing.DataFetcher(file_content)
 
         if "project" not in fetcher:
-            msg = 'Section "project" missing in pyproject.toml, skipping file'
-            return ParseError(msg, pkg_name=name, pkg_version=str(version))
+            return ParseError(
+                'Section "project" missing in pyproject.toml, skipping file',
+                pkg_name=name,
+                pkg_version=str(version),
+            )
 
         if not name or not isinstance(name, str):
-            msg = "'name' string is required"
-            return ParseError(msg, pkg_name=name, pkg_version=str(version))
+            return ParseError("'name' string is required", pkg_name=name, pkg_version=str(version))
 
         if not version or not isinstance(version, pv.Version):
-            msg = "'version' is required and must be of type " "requirements.version.Version"
-            return ParseError(msg, pkg_name=name, pkg_version=str(version))
+            return ParseError(
+                "'version' is required and must be of type " "requirements.version.Version",
+                pkg_name=name,
+                pkg_version=str(version),
+            )
 
         # normalize the name
         pyproject.name = naming.simplify_name(name)
@@ -251,23 +222,33 @@ class PyProject:
 
     def _load_metadata(self, fetcher: pyproject_parsing.DataFetcher) -> None:
         description = fetcher.get_str("project.description")
-        if not isinstance(description, pyproject_parsing.ConfigurationError):
+        if isinstance(description, pyproject_parsing.ConfigurationError):
+            self.metadata_errors.append(description)
+        else:
             self.description = description
 
         homepage = fetcher.get_homepage()
-        if not isinstance(homepage, pyproject_parsing.ConfigurationError):
+        if isinstance(homepage, pyproject_parsing.ConfigurationError):
+            self.metadata_errors.append(homepage)
+        else:
             self.homepage = homepage
 
         authors = fetcher.get_people("project.authors")
-        if not isinstance(authors, pyproject_parsing.ConfigurationError):
+        if isinstance(authors, pyproject_parsing.ConfigurationError):
+            self.metadata_errors.append(authors)
+        else:
             self.authors = _people_to_strings(authors)
 
         maintainers = fetcher.get_people("project.maintainers")
-        if not isinstance(maintainers, pyproject_parsing.ConfigurationError):
+        if isinstance(maintainers, pyproject_parsing.ConfigurationError):
+            self.metadata_errors.append(maintainers)
+        else:
             self.maintainers = _people_to_strings(maintainers)
 
         lic = fetcher.get_license()
-        if not isinstance(lic, pyproject_parsing.ConfigurationError):
+        if isinstance(lic, pyproject_parsing.ConfigurationError):
+            self.metadata_errors.append(lic)
+        else:
             self.license = lic
 
     def _load_build_system(self, fetcher: pyproject_parsing.DataFetcher) -> None:
@@ -275,9 +256,9 @@ class PyProject:
         if isinstance(build_req_result, pyproject_parsing.ConfigurationError):
             self.dependency_errors.append(build_req_result)
         else:
-            dependencies, errors = build_req_result
+            dependencies, dependency_errors = build_req_result
             self.build_requires = dependencies
-            self.dependency_errors.extend(errors)
+            self.dependency_errors.extend(dependency_errors)
 
         build_backend_result = fetcher.get_build_backend()
         if isinstance(build_backend_result, pyproject_parsing.ConfigurationError):
@@ -392,6 +373,7 @@ class SpackPyPkg:
         """
         # convert and collect dependencies for each pyproject
         for pyproject in pyprojects:
+            # store dependency parse errors, will be displayed in package.py
             if pyproject.dependency_errors:
                 self._dependency_parse_errors[str(pyproject.version)] = pyproject.dependency_errors
 
@@ -442,8 +424,7 @@ class SpackPyPkg:
         satisfiable = _check_dependency_satisfiability(final_dependency_list)
 
         if not satisfiable:
-            msg = f"Package '{self.pypi_name}' contains incompatible requirements"
-            logging.warning(msg)
+            logging.warning("Package '%s' contains incompatible requirements", self.pypi_name)
 
         # store dependencies by their type string (e.g. type=("build", "run"))
         for dep_spec, when_spec, typestring in final_dependency_list:
@@ -462,6 +443,7 @@ class SpackPyPkg:
         provider: package_providers.PyProjectProvider,
         from_extra: str | None = None,
     ) -> None:
+        """Convert a requirement and store the package version with the result Specs."""
         spec_list = conversion_tools.convert_requirement(r, provider, from_extra=from_extra)
 
         if isinstance(spec_list, conversion_tools.ConversionError):
@@ -470,6 +452,8 @@ class SpackPyPkg:
             self._dependency_conversion_errors[str(pyproject_version)].append(spec_list)
             return
 
+        # for each spec, add the current version to the list of versions which have this
+        # spec as a requirement
         for specs in spec_list:
             if specs not in self._specs_to_versions:
                 self._specs_to_versions[specs] = []
@@ -484,7 +468,7 @@ class SpackPyPkg:
             for t in dependency_types:
                 self._specs_to_types[specs].add(t)
 
-    def print_package(self, outfile: TextIO = sys.stdout) -> None:  # noqa: C901, PLR0912, PLR0915
+    def print_pkg(self, outfile: TextIO = sys.stdout) -> None:  # noqa: C901, PLR0912, PLR0915
         """Format and write the package to 'outfile'.
 
         By default outfile=sys.stdout. The package can be written directly to a
@@ -574,7 +558,7 @@ class SpackPyPkg:
                 file=outfile,
             )
             for v, p_err in self._file_parse_errors:
-                print(f"    # version {v!s}: {p_err!s}", file=outfile)
+                print(f"    # version {v!s}: {p_err.msg}", file=outfile)
 
             print("", file=outfile)
 
@@ -592,7 +576,7 @@ class SpackPyPkg:
             for v, cfg_errs in self._dependency_parse_errors.items():
                 print(f"    # version {v!s}:", file=outfile)
                 for cfg_err in cfg_errs:
-                    print(f"    #    {cfg_err!s}", file=outfile)
+                    print(f"    #    {cfg_err.msg}", file=outfile)
 
             print("", file=outfile)
 
@@ -608,7 +592,7 @@ class SpackPyPkg:
             for v, cnv_errs in self._dependency_conversion_errors.items():
                 print(f"    # version {v!s}:", file=outfile)
                 for cnv_err in cnv_errs:
-                    print(f"    #    {cnv_err!s}", file=outfile)
+                    print(f"    #    {cnv_err.msg}", file=outfile)
 
             print("", file=outfile)
 
@@ -618,6 +602,7 @@ class SpackPyPkg:
         def _requirement_sort_key(
             req: tuple[spec.Spec, spec.Spec],
         ) -> tuple[int, int, str, sv.VersionList, str]:
+            """Helper function for sorting requirements in the package.py."""
             dep, when = req
             # != because we want python to come first
             is_python = int(dep.name != "python")
@@ -647,10 +632,11 @@ def convert_pkg(
     name: str, provider: package_providers.PyProjectProvider, last_n_versions: int = 20
 ) -> SpackPyPkg | None:
     """Convert a PyPI package to a Spack package.py."""
+    # TODO @davhofer: refactor, handle outputting directly here
     # download available versions through provider (pypi, github)
     versions = provider.get_versions(name)
     if isinstance(versions, package_providers.PyProjectProviderQueryError):
-        logging.warning("No valid versions found by provider")
+        logging.warning("No valid versions found by provider %s", str(provider))
         return None
 
     # for each version, parse pyproject.toml
@@ -658,21 +644,25 @@ def convert_pkg(
     for v in versions:
         pyproject_dict = provider.get_pyproject(name, v)
         if isinstance(pyproject_dict, package_providers.PyProjectProviderQueryError):
-            msg = f"Unable to get pyproject.toml for {name} version {v}: {pyproject_dict}"
-            logging.warning(msg)
+            logging.warning(
+                "Unable to get pyproject.toml for %s version %s: %s",
+                name,
+                str(v),
+                str(pyproject_dict),
+            )
             continue
 
         pyproject = PyProject.from_toml(pyproject_dict, name, v)
         if isinstance(pyproject, ParseError):
-            msg = f"Unable to parse pyproject.toml for {name} version {v}: {pyproject}"
-            logging.warning(msg)
+            logging.warning(
+                "Unable to parse pyproject.toml for %s version %s: %s", name, str(v), str(pyproject)
+            )
             continue
 
         pyprojects.append(pyproject)
 
     if not len(pyprojects):
-        msg = f"Conversion for {name} failed, no valid pyproject.tomls found"
-        logging.warning(msg)
+        logging.warning("Conversion for %s failed, no valid pyproject.tomls found", name)
         return None
 
     if last_n_versions != -1:
@@ -709,43 +699,13 @@ def convert_pkg(
 
 
 if __name__ == "__main__":
-    old = """
-    pprojects = []
-    for vn in ["23.12.0", "23.12.1", "24.2.0", "24.4.0", "24.4.1", "24.4.2"]:
-        py_pkg = PyProject.from_toml(
-            f"example_pyprojects/black/pyproject{vn}.toml",
-            "black",
-            vn,
-            f"black-{vn}.tar.gz",
-            "sdist_sha256_hash",
-        )
-        # for v in ["4.66.1", "4.66.2", "4.66.3", "4.66.4"]:
-        #     py_pkg = PyProject.from_toml(
-        #         f"example_pyprojects/tqdm/pyproject{v}.toml", version=v
-        #     )
-
-        if isinstance(py_pkg, ParseError):
-            err_txt = (
-                f"Error: could not generate PyProject from pyproject{vn}.toml:"
-                f" {py_pkg}"
-            )
-            print(
-                err_txt,
-                file=sys.stderr,
-            )
-            continue
-
-        pprojects.append(py_pkg)
-
-    """
-
     provider = package_providers.PyPIProvider()  # type: ignore[abstract]
     # Explanation of ignore: PyProjectProvider protocol requires the __hash__() method
     # to be implemented, which is done by the @dataclass decorator for PyPIProvider (but
     # mypy does not detect this)
 
     # convert to spack
-    spack_pkg = convert_pkg("pandas", provider, last_n_versions=20)
+    spack_pkg = convert_pkg("black", provider, last_n_versions=20)
 
     if spack_pkg is None:
         logging.warning("Could not generate spack package from PyProject")
@@ -760,7 +720,7 @@ if __name__ == "__main__":
         # print to file.
         out_path = pathlib.Path("output/package.py")
         with out_path.open("w+") as f:
-            spack_pkg.print_package(outfile=f)
+            spack_pkg.print_pkg(outfile=f)
     else:
         # print to console
-        spack_pkg.print_package(outfile=sys.stdout)
+        spack_pkg.print_pkg(outfile=sys.stdout)

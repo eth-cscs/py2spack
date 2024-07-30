@@ -5,6 +5,7 @@ Parts of the code are adapted from Spack/Harmen Stoppels: https://github.com/spa
 
 from __future__ import annotations
 
+import dataclasses
 import functools
 import logging
 import re
@@ -43,23 +44,12 @@ KNOWN_PYTHON_VERSIONS = (
 )
 
 
-class ConversionError(Exception):
+@dataclasses.dataclass(frozen=True)
+class ConversionError:
     """Error while converting a packaging requirement to spack."""
 
-    def __init__(
-        self,
-        msg: str,
-        *,
-        requirement: str | None = None,
-    ):
-        """Initialize error."""
-        super().__init__(msg)
-        self._requirement = requirement
-
-    @property
-    def requirement(self) -> str | None:
-        """Get requirement."""
-        return self._requirement
+    msg: str
+    requirement: str | None = None
 
 
 def _get_python_versions() -> list[pv.Version]:
@@ -157,8 +147,7 @@ def packaging_to_spack_version(v: pv.Version) -> sv.StandardVersion:
     release = []
     prerelease = [sv.common.FINAL]
     if v.epoch > 0:
-        msg = f"warning: epoch {v} isn't really supported"
-        logging.warning(msg)
+        logging.warning("warning: epoch %s isn't really supported", str(v))
         release.append(v.epoch)
     release.extend(v.release)
     separators = ["."] * (len(release) - 1)
@@ -174,8 +163,7 @@ def packaging_to_spack_version(v: pv.Version) -> sv.StandardVersion:
         separators.extend(("-", ""))
 
         if v.post or v.dev or v.local:
-            msg = f"warning: ignoring post / dev / local version {v}"
-            logging.warning(msg)
+            logging.warning("warning: ignoring post / dev / local version %s", str(v))
 
     else:
         if v.post is not None:
@@ -206,11 +194,8 @@ def packaging_to_spack_version(v: pv.Version) -> sv.StandardVersion:
 
 
 def _version_type_supported(version: pv.Version) -> bool:
-    return (
-        version.pre is None
-        and version.post is None
-        and version.dev is None
-        and version.local is None
+    return version.pre is None or (
+        version.post is None and version.dev is None and version.local is None
     )
 
 
@@ -222,16 +207,8 @@ def condensed_version_list(
     subset_filtered = list(filter(_version_type_supported, _subset_of_versions))
     all_versions_filtered = list(filter(_version_type_supported, _all_versions))
 
-    if len(subset_filtered) < len(_subset_of_versions) or len(all_versions_filtered) < len(
-        _all_versions
-    ):
-        # TODO @davhofer: this msg is displayed 100s of times. move it somewhere else and
-        # display it only once
-        msg = (
-            "Prereleases as well as post, dev, and local versions are not "
-            "supported and will be excluded!"
-        )
-        logging.warning(msg)
+    # NOTE: Prereleases as well as post, dev, and local versions are not supported and
+    # will be excluded!
 
     # Sort in Spack's order, which should in principle coincide with
     # packaging's order, but may not in unforseen edge cases.
@@ -303,8 +280,7 @@ def _eval_python_version_marker(
     try:
         specifier = specifiers.SpecifierSet(f"{op}{value}")
     except specifiers.InvalidSpecifier:
-        msg = f"could not parse `{op}{value}` as specifier"
-        logging.warning(msg)
+        logging.warning("could not parse `%s%s` as specifier", str(op), str(value))
         return None
 
     return _pkg_specifier_set_to_version_list("python", specifier, provider)
@@ -417,8 +393,7 @@ def _eval_constraint(
             "~=": "~=",
         }.get(op.value)
         if flipped_op is None:
-            msg = f"do not know how to evaluate `{node}`"
-            logging.warning(msg)
+            logging.warning("do not know how to evaluate `%s`", str(node))
             return None
         variable, op, value = value, markers.Op(flipped_op), variable  # type: ignore[attr-defined]
 
@@ -448,8 +423,7 @@ def _eval_constraint(
                     return_val = [spec.Spec(f"~{value.value}")]
 
         except (spack.parser.SpecSyntaxError, ValueError) as e:
-            msg = f"could not parse `{value}` as variant: {e}"
-            logging.warning(msg)
+            logging.warning("could not parse `%s` as variant: %s", str(value), str(e))
             return None
 
     return return_val
@@ -623,8 +597,10 @@ def convert_requirement(
             marker_eval = evaluate_marker(r.marker, provider)
         except ValueError as e:
             from_extra_str = "" if not from_extra else f" from extra '{from_extra}'"
-            msg = f"Unable to convert marker {r.marker} for dependency" f" {r}{from_extra_str}: {e}"
-            return ConversionError(msg, requirement=str(r))
+            return ConversionError(
+                f"Unable to convert marker {r.marker} for dependency" f" {r}{from_extra_str}: {e}",
+                requirement=str(r),
+            )
 
         if isinstance(marker_eval, bool) and marker_eval is False:
             # Marker is statically false, skip this requirement
@@ -651,8 +627,11 @@ def convert_requirement(
         # return Error if no version satisfies the requirement
         if not vlist:
             from_extra_str = "" if not from_extra else f" from extra {from_extra}"
-            msg = f"Unable to convert dependency" f" {r}{from_extra_str}: no matching versions"
-            return ConversionError(msg, requirement=str(r))
+
+            return ConversionError(
+                f"Unable to convert dependency" f" {r}{from_extra_str}: no matching versions",
+                requirement=str(r),
+            )
 
         requirement_spec.versions = vlist
 
