@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import bisect
 import dataclasses
 import logging
 import pathlib
@@ -16,7 +17,7 @@ from py2spack import conversion_tools, package_providers, pyproject_parsing
 
 
 TEST_PKG_PREFIX = "test-"
-USE_TEST_PREFIX = True
+USE_TEST_PREFIX = False
 PRINT_PKG_TO_FILE = False
 SPACK_CHECKSUM_HASHES = ["md5", "sha1", "sha224", "sha256", "sha384", "sha512"]
 
@@ -26,14 +27,12 @@ class ParseError:
     """Error in parsing a pyproject.toml file.
 
     This error is not recoverable from, it means that the pyproject.toml file
-    cannot be parsed or used at all (as opposed to a parsing.ConfigurationError,
-    which only affects some portion of the pyproject.toml parsing).
+    cannot be parsed or used at all (as opposed to a
+    pyproject_parsing.ConfigurationError, which only affects some portion of the
+    pyproject.toml parsing).
     """
 
     msg: str
-    file: str | None = None
-    pkg_name: str | None = None
-    pkg_version: str | None = None
 
 
 @dataclasses.dataclass(frozen=True)
@@ -41,6 +40,14 @@ class DependencyConflictError:
     """Satisfiability conflict between two dependencies."""
 
     msg: str
+
+
+def _format_types(types: set[str]) -> str:
+    if len(types) == 1:
+        t = next(iter(types))
+        return f'"{t}"'
+
+    return str(tuple(sorted(types))).replace("'", '"')
 
 
 def _format_dependency(
@@ -74,7 +81,7 @@ def _format_dependency(
 
     type_str = ""
     if dep_types is not None and dep_types:
-        type_str_inner = str(tuple(sorted(dep_types))).replace("'", '"')
+        type_str_inner = _format_types(dep_types)
         type_str = f", type={type_str_inner}"
 
     return f"{prefix}{when_str}{type_str})"
@@ -94,7 +101,6 @@ def _find_dependency_satisfiability_conflicts(
     or "if the dependency specs intersetct, then the when specs have to
     intersect too".
     """
-    # TODO @davhofer: refactor, return list of conflicts
     dependency_conflicts: list[DependencyConflictError] = []
 
     dependency_names = list({dep[0].name for dep in dependency_list if dep[0].name is not None})
@@ -191,18 +197,14 @@ class PyProject:
         if "project" not in fetcher:
             return ParseError(
                 'Section "project" missing in pyproject.toml, skipping file',
-                pkg_name=name,
-                pkg_version=str(version),
             )
 
         if not name or not isinstance(name, str):
-            return ParseError("'name' string is required", pkg_name=name, pkg_version=str(version))
+            return ParseError("'name' string is required")
 
         if not version or not isinstance(version, pv.Version):
             return ParseError(
                 "'version' is required and must be of type " "requirements.version.Version",
-                pkg_name=name,
-                pkg_version=str(version),
             )
 
         # normalize the name
@@ -300,7 +302,7 @@ class SpackPyPkg:
     PyProject fields and semantics to their Spack equivalents (where possible).
     """
 
-    _name: str = ""
+    name: str = ""
     _pypi_name: str = ""
     _description: str | None = None
     _pypi: str = ""
@@ -308,12 +310,16 @@ class SpackPyPkg:
         default_factory=list
     )
     _versions_missing_checksum: list[sv.Version] = dataclasses.field(default_factory=list)
-    _all_versions: list[pv.Version] = dataclasses.field(default_factory=list)
+    all_versions: list[pv.Version] = dataclasses.field(default_factory=list)
+    num_converted_versions: int = 0
     _variants: set[str] = dataclasses.field(default_factory=set)
     _maintainers: list[str] = dataclasses.field(default_factory=list)
     _authors: list[str] = dataclasses.field(default_factory=list)
     _license: str | None = None
     _homepage: str | None = None
+    # store all dependencies of the package (with their original name, not converted
+    # to spack)
+    original_dependencies: set[str] = dataclasses.field(default_factory=set)
     _dependencies_by_type: dict[str, list[tuple[spec.Spec, spec.Spec]]] = dataclasses.field(
         default_factory=dict
     )
@@ -321,13 +327,13 @@ class SpackPyPkg:
     _metadata_parse_errors: dict[str, list[pyproject_parsing.ConfigurationError]] = (
         dataclasses.field(default_factory=dict)
     )
-    _dependency_parse_errors: dict[str, list[pyproject_parsing.ConfigurationError]] = (
+    dependency_parse_errors: dict[str, list[pyproject_parsing.ConfigurationError]] = (
         dataclasses.field(default_factory=dict)
     )
-    _dependency_conversion_errors: dict[str, list[conversion_tools.ConversionError]] = (
+    dependency_conversion_errors: dict[str, list[conversion_tools.ConversionError]] = (
         dataclasses.field(default_factory=dict)
     )
-    _dependency_conflict_errors: list[DependencyConflictError] = dataclasses.field(
+    dependency_conflict_errors: list[DependencyConflictError] = dataclasses.field(
         default_factory=list
     )
     # map each unique dependency (dependency spec, when spec) to a
@@ -340,15 +346,17 @@ class SpackPyPkg:
         default_factory=dict
     )
 
-    def _metadata_from_pyproject(self, pyproject: PyProject) -> None:
+    def _metadata_from_pyproject(self, pyproject: PyProject, use_test_prefix: bool = False) -> None:
         """Load and convert main metadata from given PyProject instance.
 
         Does not include pypi field, versions, or the dependencies.
         """
-        self.pypi_name = pyproject.name
-        self.name = conversion_tools.pkg_to_spack_name(pyproject.name)
-        self.description = pyproject.description
-        self.homepage = pyproject.homepage
+        self._pypi_name = pyproject.name
+        self.name = conversion_tools.pkg_to_spack_name(
+            pyproject.name, use_test_prefix=use_test_prefix
+        )
+        self._description = pyproject.description
+        self._homepage = pyproject.homepage
 
         if pyproject.authors is not None:
             for elem in pyproject.authors:
@@ -359,9 +367,9 @@ class SpackPyPkg:
                 self._maintainers.append(elem)
 
         if pyproject.license:
-            self.license = pyproject.license
+            self._license = pyproject.license
 
-    def _dependencies_from_pyproject(
+    def _dependencies_from_pyprojects(
         self, pyprojects: list[PyProject], provider: package_providers.PyProjectProvider
     ) -> None:
         """Convert and combine dependencies from a list of pyprojects.
@@ -380,7 +388,7 @@ class SpackPyPkg:
         for pyproject in pyprojects:
             # store dependency parse errors, will be displayed in package.py
             if pyproject.dependency_errors:
-                self._dependency_parse_errors[str(pyproject.version)] = pyproject.dependency_errors
+                self.dependency_parse_errors[str(pyproject.version)] = pyproject.dependency_errors
 
             # build dependencies
             for r in pyproject.build_requires:
@@ -417,23 +425,23 @@ class SpackPyPkg:
         for (dep_spec, when_spec), vlist in self._specs_to_versions.items():
             types = self._specs_to_types[dep_spec, when_spec]
 
-            versions_condensed = conversion_tools.condensed_version_list(vlist, self._all_versions)
+            versions_condensed = conversion_tools.condensed_version_list(vlist, self.all_versions)
             when_spec.versions = versions_condensed
             final_dependency_list.append((dep_spec, when_spec, types))
 
         # check for conflicts
-        self._dependency_conflict_errors = _find_dependency_satisfiability_conflicts(
+        self.dependency_conflict_errors = _find_dependency_satisfiability_conflicts(
             final_dependency_list
         )
 
-        if self._dependency_conflict_errors:
-            logging.warning("Package '%s' contains incompatible requirements", self.pypi_name)
+        if self.dependency_conflict_errors:
+            logging.warning("Package '%s' contains incompatible requirements", self._pypi_name)
 
         # store dependencies by their type string (e.g. type=("build", "run"))
         for dep_spec, when_spec, types in final_dependency_list:
             # convert the set of types to a string as it would be displayed in
             # the package.py, e.g. '("build", "run")'.
-            canonical_typestring = str(tuple(sorted(types))).replace("'", '"')
+            canonical_typestring = _format_types(types)
 
             if canonical_typestring not in self._dependencies_by_type:
                 self._dependencies_by_type[canonical_typestring] = []
@@ -452,10 +460,13 @@ class SpackPyPkg:
         spec_list = conversion_tools.convert_requirement(r, provider, from_extra=from_extra)
 
         if isinstance(spec_list, conversion_tools.ConversionError):
-            if str(pyproject_version) not in self._dependency_conversion_errors:
-                self._dependency_conversion_errors[str(pyproject_version)] = []
-            self._dependency_conversion_errors[str(pyproject_version)].append(spec_list)
+            if str(pyproject_version) not in self.dependency_conversion_errors:
+                self.dependency_conversion_errors[str(pyproject_version)] = []
+            self.dependency_conversion_errors[str(pyproject_version)].append(spec_list)
             return
+
+        # store dependency name
+        self.original_dependencies.add(r.name)
 
         # for each spec, add the current version to the list of versions which have this
         # spec as a requirement
@@ -473,14 +484,43 @@ class SpackPyPkg:
             for t in dependency_types:
                 self._specs_to_types[specs].add(t)
 
+    def build_from_pyprojects(
+        self,
+        name: str,
+        pyprojects: list[PyProject],
+        provider: package_providers.PyProjectProvider,
+        use_test_prefix: bool = False,
+    ) -> None:
+        """Build the spack package from pyprojects."""
+        # get metadata from most recent version
+        self._metadata_from_pyproject(pyprojects[-1], use_test_prefix=use_test_prefix)
+
+        self.num_converted_versions = len(pyprojects)
+
+        # get parsed versions with hashes (for display in package.py)
+        # pyprojects are already in reverse order,
+        # s.t. newest version is on top in package.py
+        for p in pyprojects:
+            spack_version = conversion_tools.packaging_to_spack_version(p.version)
+            hashdict = provider.get_sdist_hash(name, p.version)
+            if isinstance(hashdict, dict) and hashdict:
+                hash_key, hash_value = next(iter(hashdict.items()))
+
+                if hash_key in SPACK_CHECKSUM_HASHES:
+                    self._versions_with_checksum.append((spack_version, hash_key, hash_value))
+                    continue
+
+            self._versions_missing_checksum.append(spack_version)
+
+        # convert all dependencies (for the selected versions)
+        self._dependencies_from_pyprojects(pyprojects, provider)
+
     def print_pkg(self, outfile: TextIO = sys.stdout) -> None:  # noqa: C901, PLR0912, PLR0915
         """Format and write the package to 'outfile'.
 
         By default outfile=sys.stdout. The package can be written directly to a
         package.py file by supplying the corresponding file object.
         """
-        logging.info("Outputting package.py...\n")
-
         cpright = """\
 # Copyright 2013-2024 Lawrence Livermore National Security, LLC and other
 # Spack Project Developers. See the top-level COPYRIGHT file for details.
@@ -498,16 +538,16 @@ class SpackPyPkg:
             file=outfile,
         )
 
-        if self.description is not None and len(self.description) > 0:
-            print(f'    """{self.description}"""', file=outfile)
+        if self._description is not None and len(self._description) > 0:
+            print(f'    """{self._description}"""', file=outfile)
         else:
             txt = '    """FIXME: Put a proper description' ' of your package here."""'
             print(txt, file=outfile)
 
         print("", file=outfile)
 
-        if self.homepage:
-            print(f'    homepage = "{self.homepage}"', file=outfile)
+        if self._homepage:
+            print(f'    homepage = "{self._homepage}"', file=outfile)
         else:
             print("    # FIXME: add homepage", file=outfile)
             print('    # homepage = ""', file=outfile)
@@ -516,14 +556,16 @@ class SpackPyPkg:
 
         print("", file=outfile)
 
-        if self.license:
-            print(f'    license("{self.license}")', file=outfile)
+        if self._license:
+            print("    # FIXME: check license", file=outfile)
+            print(f'    license("{self._license}")', file=outfile)
         else:
             print("    # FIXME: add license", file=outfile)
 
         print("", file=outfile)
 
         print("    # FIXME: add github names for maintainers", file=outfile)
+        print('    # maintainers("...")', file=outfile)
         if self._authors:
             print("    # Authors:", file=outfile)
             for author in self._authors:
@@ -566,37 +608,37 @@ class SpackPyPkg:
 
         print("", file=outfile)
 
-        if self._dependency_parse_errors:
+        if self.dependency_parse_errors:
             txt = "    # FIXME: the following dependencies could not be parsed"
             print(txt, file=outfile)
-            for v, cfg_errs in self._dependency_parse_errors.items():
+            for v, cfg_errs in self.dependency_parse_errors.items():
                 print(f"    # version {v!s}:", file=outfile)
                 for cfg_err in cfg_errs:
                     print(f"    #    {cfg_err.msg}", file=outfile)
 
             print("", file=outfile)
 
-        if self._dependency_conversion_errors:
+        if self.dependency_conversion_errors:
             txt = (
                 "    # FIXME: the following dependencies could be parsed but "
                 "not converted to spack"
             )
             print(txt, file=outfile)
-            for v, cnv_errs in self._dependency_conversion_errors.items():
+            for v, cnv_errs in self.dependency_conversion_errors.items():
                 print(f"    # version {v!s}:", file=outfile)
                 for cnv_err in cnv_errs:
                     print(f"    #    {cnv_err.msg}", file=outfile)
 
             print("", file=outfile)
 
-        if self._dependency_conflict_errors:
+        if self.dependency_conflict_errors:
             txt = """\
     # FIXME: the following dependency conflicts were found. A conflict arises if two dependencies
     # have intersecting 'when=...' Specs (meaning that they can both be required at the same time),
     # but non-intersecting dependency Specs (e.g. 'pkg@4.2:' and 'pkg@:3.5')"""
             print(txt, file=outfile)
 
-            for dep_conflict in self._dependency_conflict_errors:
+            for dep_conflict in self.dependency_conflict_errors:
                 print(f"    # {dep_conflict.msg}", file=outfile)
 
             print("", file=outfile)
@@ -633,20 +675,38 @@ class SpackPyPkg:
         print("", file=outfile)
 
 
-def convert_pkg(
-    name: str, provider: package_providers.PyProjectProvider, last_n_versions: int = 20
+def _convert_single(
+    name: str,
+    provider: package_providers.PyProjectProvider,
+    num_versions: int = 10,
+    required_version: pv.Version | None = None,
+    use_test_prefix: bool = False,
 ) -> SpackPyPkg | None:
     """Convert a PyPI package to a Spack package.py."""
-    # TODO @davhofer: refactor, handle outputting directly here
     # download available versions through provider (pypi, github)
     versions = provider.get_versions(name)
     if isinstance(versions, package_providers.PyProjectProviderQueryError):
         logging.warning("No valid versions found by provider %s", str(provider))
         return None
 
+    # if required_version is specified, make sure we take as many versions as needed to
+    # include it
+    if required_version is not None:
+        # find index of last version v <= required_version (then we have
+        # required_version >= v)
+        req_idx = bisect.bisect_right(versions, required_version) - 1
+        # number of (newest) versions we need in order to include required_version
+        num_versions_including_req = len(versions) - req_idx
+
+        num_versions = max(num_versions, num_versions_including_req)
+
     # for each version, parse pyproject.toml
-    pyprojects = []
-    for v in versions:
+    pyprojects: list[PyProject] = []
+    for i, v in enumerate(reversed(versions)):
+        # only look at the first `num_versions` versions
+        if i == num_versions:
+            break
+
         pyproject_dict = provider.get_pyproject(name, v)
         if isinstance(pyproject_dict, package_providers.PyProjectProviderQueryError):
             logging.warning(
@@ -666,66 +726,199 @@ def convert_pkg(
 
         pyprojects.append(pyproject)
 
-    if not len(pyprojects):
+    if not pyprojects:
         logging.warning("Conversion for %s failed, no valid pyproject.tomls found", name)
         return None
 
-    if last_n_versions != -1:
-        pyprojects = pyprojects[-last_n_versions:]
-
     # convert to spack
     spackpkg = SpackPyPkg()
-    spackpkg._all_versions = versions
+    spackpkg.all_versions = versions
 
     if isinstance(provider, package_providers.PyPIProvider):
         spackpkg._pypi = provider.get_pypi_package_base(name)
 
-    # get metadata from most recent version
-    spackpkg._metadata_from_pyproject(pyprojects[-1])
-
-    # get parsed versions with hashes (for display in package.py)
-    # reverse order s.t. newest version is on top in package.py
-    for p in reversed(pyprojects):
-        spack_version = conversion_tools.packaging_to_spack_version(p.version)
-        hashdict = provider.get_sdist_hash(name, p.version)
-        if isinstance(hashdict, dict) and hashdict:
-            hash_key, hash_value = next(iter(hashdict.items()))
-
-            if hash_key in SPACK_CHECKSUM_HASHES:
-                spackpkg._versions_with_checksum.append((spack_version, hash_key, hash_value))
-                continue
-
-        spackpkg._versions_missing_checksum.append(spack_version)
-
-    # convert all dependencies (for the selected versions)
-    spackpkg._dependencies_from_pyproject(pyprojects, provider)
+    spackpkg.build_from_pyprojects(name, pyprojects, provider, use_test_prefix=use_test_prefix)
 
     return spackpkg
 
 
-if __name__ == "__main__":
+def _package_exists_in_spack(name: str, spack_repo: pathlib.Path) -> bool:
+    """Checks if a specific package exists in the spack repository.
+
+    The name argument is the original non-spack name, e.g. 'black' instead of
+    'py-black'.
+    """
+    name = conversion_tools.pkg_to_spack_name(name)
+    pkg_dir = spack_repo / "packages" / name
+    return pkg_dir.is_dir() and (pkg_dir / "package.py").is_file()
+
+
+def _get_spack_repo(repo_path: str | None) -> pathlib.Path:
+    home = pathlib.Path.cwd().home()
+    spack_repo = (
+        home / "spack" / "var" / "spack" / "repos" / "builtin"
+        if repo_path is None
+        else pathlib.Path(repo_path)
+    )
+
+    while not spack_repo.is_dir() or not (spack_repo / "packages").is_dir():
+        spack_repo_str = input(
+            f"'{spack_repo}' is not a spack repo. Please enter full path to local spack repository:"
+        )
+        spack_repo = pathlib.Path(spack_repo_str)
+
+    return spack_repo
+
+
+def _write_package_to_repo(package: SpackPyPkg, spack_repo: pathlib.Path) -> bool:
+    try:
+        pkg_dir = spack_repo / "packages" / package.name
+        pkg_dir.mkdir()
+
+        package_py = pkg_dir / "package.py"
+        package_py.touch()
+
+        with package_py.open("w") as f:
+            package.print_pkg(outfile=f)
+
+        return True
+
+    except (FileExistsError, OSError):
+        return False
+
+
+# TODO @davhofer: allow multiple providers/user specification/check a list of providers for package
+# TODO @davhofer: handle packages from github by instantiating a special github provider for it
+# TODO @davhofer: some sort of progress bar/console output while converting, downloading archives, etc.
+# TODO @davhofer: currently, dependencies for variants/optional dependencies are also converted. Make this optional?
+def convert_package(  # noqa: PLR0913 [too many arguments in function definition]
+    name: str,
+    max_conversions: int = 10,
+    versions_per_package: int = 10,
+    repo_path: str | None = None,
+    ignore: list[str] | None = None,
+    use_test_prefix: bool = False,
+) -> None:
+    """Convert a package and its dependencies to Spack.
+
+    TODO: docstring with arguments
+    """
+    ignore_list: list[str] = [] if ignore is None else ignore
+
+    spack_repo = _get_spack_repo(repo_path)
+    print(f"Using Spack repository at {spack_repo}")
+
+    if _package_exists_in_spack(name, spack_repo) and not use_test_prefix:
+        print(f"Package {name} already exists in Spack repository")
+        return
+
+    # Explanation of ignore comment: PyProjectProvider protocol requires the __hash__()
+    # method to be implemented, which is done by the @dataclass decorator for
+    # PyPIProvider (but mypy does not detect this)
     provider = package_providers.PyPIProvider()  # type: ignore[abstract]
-    # Explanation of ignore: PyProjectProvider protocol requires the __hash__() method
-    # to be implemented, which is done by the @dataclass decorator for PyPIProvider (but
-    # mypy does not detect this)
 
-    # convert to spack
-    spack_pkg = convert_pkg("black", provider, last_n_versions=20)
+    # queue of packages to be converted
+    queue: list[str] = [name]
+    # converted packages with number of converted versions. these can still have
+    # errors, FIXME's, etc.
+    converted: list[tuple[str, int, bool]] = []
+    # packages that could not be converted and written at all
+    conversion_failures: list[str] = []
 
-    if spack_pkg is None:
-        logging.warning("Could not generate spack package from PyProject")
-        sys.exit()
+    # allow user to cancel the process and still show summary
+    try:
+        while queue and (max_conversions == -1 or len(converted) < max_conversions):
+            name = queue.pop()
 
-    if USE_TEST_PREFIX:
-        spack_pkg.name = TEST_PKG_PREFIX + spack_pkg.name
+            print(f"\nConverting package {name}...")
+            spackpkg = _convert_single(
+                name, provider, num_versions=versions_per_package, use_test_prefix=use_test_prefix
+            )
 
-    logging.info("spack pkg built")
+            if spackpkg is None:
+                conversion_failures.append(name)
+                continue
 
-    if PRINT_PKG_TO_FILE:
-        # print to file.
-        out_path = pathlib.Path("output/package.py")
-        with out_path.open("w+") as f:
-            spack_pkg.print_pkg(outfile=f)
+            # write package to repo
+            write_successful = _write_package_to_repo(spackpkg, spack_repo)
+
+            if not write_successful:
+                logging.warning("Error when trying to write package %s to repository", name)
+                conversion_failures.append(name)
+                continue
+
+            # store package name, number of converted versions, and whether there are
+            # requried fixes for dependencies
+            dep_requires_fix = (
+                bool(spackpkg.dependency_parse_errors)
+                or bool(spackpkg.dependency_conversion_errors)
+                or bool(spackpkg.dependency_conflict_errors)
+            )
+            converted.append((name, spackpkg.num_converted_versions, dep_requires_fix))
+
+            for dep in spackpkg.original_dependencies:
+                if (
+                    dep != "python"
+                    and dep not in queue
+                    and dep not in conversion_failures
+                    and not _package_exists_in_spack(
+                        dep, spack_repo
+                    )  # this also covers packages already converted in this run
+                    and dep not in ignore_list
+                ):
+                    queue.append(dep)
+    except KeyboardInterrupt:
+        # display the current package in summary
+        queue.insert(0, name)
+
+    _print_summary(converted, queue, conversion_failures)
+
+
+def _print_summary(
+    converted: list[tuple[str, int, bool]],
+    queue: list[str],
+    conversion_failures: list[str],
+) -> None:
+    print(
+        "\n\nNOTE: python packages in Spack have the prefix 'py-' (e.g. 'py-pandas' instead of 'pandas')."
+    )
+    print("\n\n * * * * * * * * * * * * * SUMMARY * * * * * * * * * * * * *\n *")
+
+    print(f" * Converted {len(converted)} packages:")
+    has_fix_dep = False
+    for p, n_versions, dep_requires_fix in converted:
+        if dep_requires_fix:
+            has_fix_dep = True
+        print(f" *  - {p} ({n_versions} versions) {'[FIX DEP.]' if dep_requires_fix else ''}")
+    # only display this if a package has the FIX DEP flag
+    if has_fix_dep:
+        print(
+            " * Dependency errors that require manual review are marked as [FIX DEP.].\n * See generated `package.py` for details."
+        )
+
+    if converted:
+        print(" *\n * All generated `package.py` files should be manually\n * reviewed.")
+
+    print(" *")
+    if queue:
+        print(
+            f" * `max_conversions` limit reached but {len(queue)} unconverted\n * dependency packages left:"
+        )
+        for p in queue:
+            print(f" *  - {p}")
+
     else:
-        # print to console
-        spack_pkg.print_pkg(outfile=sys.stdout)
+        print(" * No packages left.")
+
+    print(" *")
+    if conversion_failures:
+        print(
+            f" * The following {len(conversion_failures)} packages could not be converted\n * due to errors:"
+        )
+        for p in conversion_failures:
+            print(f" *  - {p}")
+
+    else:
+        print(" * No conversion failures.")
+
+    print(" *\n * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *")
