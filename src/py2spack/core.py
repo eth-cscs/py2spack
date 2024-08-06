@@ -42,6 +42,14 @@ class DependencyConflictError:
     msg: str
 
 
+def _format_types(types: set[str]) -> str:
+    if len(types) == 1:
+        t = next(iter(types))
+        return f'"{t}"'
+
+    return str(tuple(sorted(types))).replace("'", '"')
+
+
 def _format_dependency(
     dependency_spec: spec.Spec,
     when_spec: spec.Spec,
@@ -73,7 +81,7 @@ def _format_dependency(
 
     type_str = ""
     if dep_types is not None and dep_types:
-        type_str_inner = str(tuple(sorted(dep_types))).replace("'", '"')
+        type_str_inner = _format_types(dep_types)
         type_str = f", type={type_str_inner}"
 
     return f"{prefix}{when_str}{type_str})"
@@ -433,7 +441,7 @@ class SpackPyPkg:
         for dep_spec, when_spec, types in final_dependency_list:
             # convert the set of types to a string as it would be displayed in
             # the package.py, e.g. '("build", "run")'.
-            canonical_typestring = str(tuple(sorted(types))).replace("'", '"')
+            canonical_typestring = _format_types(types)
 
             if canonical_typestring not in self._dependencies_by_type:
                 self._dependencies_by_type[canonical_typestring] = []
@@ -783,7 +791,7 @@ def _write_package_to_repo(package: SpackPyPkg, spack_repo: pathlib.Path) -> boo
 # TODO @davhofer: handle packages from github by instantiating a special github provider for it
 # TODO @davhofer: some sort of progress bar/console output while converting, downloading archives, etc.
 # TODO @davhofer: currently, dependencies for variants/optional dependencies are also converted. Make this optional?
-def convert_package(
+def convert_package(  # noqa: PLR0913 [too many arguments in function definition]
     name: str,
     max_conversions: int = 10,
     versions_per_package: int = 10,
