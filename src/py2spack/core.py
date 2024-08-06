@@ -17,7 +17,7 @@ from py2spack import conversion_tools, package_providers, pyproject_parsing
 
 
 TEST_PKG_PREFIX = "test-"
-USE_TEST_PREFIX = True
+USE_TEST_PREFIX = False
 PRINT_PKG_TO_FILE = False
 SPACK_CHECKSUM_HASHES = ["md5", "sha1", "sha224", "sha256", "sha384", "sha512"]
 
@@ -338,14 +338,14 @@ class SpackPyPkg:
         default_factory=dict
     )
 
-    def _metadata_from_pyproject(self, pyproject: PyProject) -> None:
+    def _metadata_from_pyproject(self, pyproject: PyProject, use_test_prefix: bool = False) -> None:
         """Load and convert main metadata from given PyProject instance.
 
         Does not include pypi field, versions, or the dependencies.
         """
         self._pypi_name = pyproject.name
         self.name = conversion_tools.pkg_to_spack_name(
-            pyproject.name, use_test_prefix=USE_TEST_PREFIX
+            pyproject.name, use_test_prefix=use_test_prefix
         )
         self._description = pyproject.description
         self._homepage = pyproject.homepage
@@ -481,10 +481,11 @@ class SpackPyPkg:
         name: str,
         pyprojects: list[PyProject],
         provider: package_providers.PyProjectProvider,
+        use_test_prefix: bool = False,
     ) -> None:
         """Build the spack package from pyprojects."""
         # get metadata from most recent version
-        self._metadata_from_pyproject(pyprojects[-1])
+        self._metadata_from_pyproject(pyprojects[-1], use_test_prefix=use_test_prefix)
 
         self.num_converted_versions = len(pyprojects)
 
@@ -548,6 +549,7 @@ class SpackPyPkg:
         print("", file=outfile)
 
         if self._license:
+            print("    # FIXME: check license", file=outfile)
             print(f'    license("{self._license}")', file=outfile)
         else:
             print("    # FIXME: add license", file=outfile)
@@ -555,6 +557,7 @@ class SpackPyPkg:
         print("", file=outfile)
 
         print("    # FIXME: add github names for maintainers", file=outfile)
+        print('    # maintainers("...")', file=outfile)
         if self._authors:
             print("    # Authors:", file=outfile)
             for author in self._authors:
@@ -669,6 +672,7 @@ def _convert_single(
     provider: package_providers.PyProjectProvider,
     num_versions: int = 10,
     required_version: pv.Version | None = None,
+    use_test_prefix: bool = False,
 ) -> SpackPyPkg | None:
     """Convert a PyPI package to a Spack package.py."""
     # download available versions through provider (pypi, github)
@@ -725,7 +729,7 @@ def _convert_single(
     if isinstance(provider, package_providers.PyPIProvider):
         spackpkg._pypi = provider.get_pypi_package_base(name)
 
-    spackpkg.build_from_pyprojects(name, pyprojects, provider)
+    spackpkg.build_from_pyprojects(name, pyprojects, provider, use_test_prefix=use_test_prefix)
 
     return spackpkg
 
@@ -776,16 +780,16 @@ def _write_package_to_repo(package: SpackPyPkg, spack_repo: pathlib.Path) -> boo
 
 
 # TODO @davhofer: allow multiple providers/user specification/check a list of providers for package
-# TODO @davhofer: handle packages from github by instantiation a special github provider for it
+# TODO @davhofer: handle packages from github by instantiating a special github provider for it
 # TODO @davhofer: some sort of progress bar/console output while converting, downloading archives, etc.
-# TODO @davhofer: currently, dependencies for variants/optional dependencies are also converted. Make this optional
-# TODO @davhofer: give option to ignore certain dependencies
+# TODO @davhofer: currently, dependencies for variants/optional dependencies are also converted. Make this optional?
 def convert_package(
     name: str,
     max_conversions: int = 10,
     versions_per_package: int = 10,
     repo_path: str | None = None,
     ignore: list[str] | None = None,
+    use_test_prefix: bool = False,
 ) -> None:
     """Convert a package and its dependencies to Spack.
 
@@ -794,10 +798,10 @@ def convert_package(
     ignore_list: list[str] = [] if ignore is None else ignore
 
     spack_repo = _get_spack_repo(repo_path)
-    print(f"Using Spack repository at {spack_repo}")  # noqa: T201 [print]
+    print(f"Using Spack repository at {spack_repo}")
 
-    if _package_exists_in_spack(name, spack_repo) and not USE_TEST_PREFIX:
-        print(f"Package {name} already exists in Spack repository")  # noqa: T201 [print]
+    if _package_exists_in_spack(name, spack_repo) and not use_test_prefix:
+        print(f"Package {name} already exists in Spack repository")
         return
 
     # Explanation of ignore comment: PyProjectProvider protocol requires the __hash__()
@@ -818,8 +822,10 @@ def convert_package(
         while queue and (max_conversions == -1 or len(converted) < max_conversions):
             name = queue.pop()
 
-            print(f"\nConverting package {name}...")  # noqa: T201 [print]
-            spackpkg = _convert_single(name, provider, num_versions=versions_per_package)
+            print(f"\nConverting package {name}...")
+            spackpkg = _convert_single(
+                name, provider, num_versions=versions_per_package, use_test_prefix=use_test_prefix
+            )
 
             if spackpkg is None:
                 conversion_failures.append(name)
@@ -854,7 +860,9 @@ def convert_package(
                 ):
                     queue.append(dep)
     except KeyboardInterrupt:
+        # display the current package in summary
         queue.insert(0, name)
+
     _print_summary(converted, queue, conversion_failures)
 
 
@@ -862,51 +870,47 @@ def _print_summary(
     converted: list[tuple[str, int, bool]],
     queue: list[str],
     conversion_failures: list[str],
-    outfile: TextIO = sys.stdout,
 ) -> None:
-    print("\n\n\n * * * * * * * * * * * * * SUMMARY * * * * * * * * * * * * *\n *", file=outfile)
-
     print(
-        f" * Converted {len(converted)} packages:",
-        file=outfile,
+        "\n\nNOTE: python packages in Spack have the prefix 'py-' (e.g. 'py-pandas' instead of 'pandas')."
     )
+    print("\n\n * * * * * * * * * * * * * SUMMARY * * * * * * * * * * * * *\n *")
+
+    print(f" * Converted {len(converted)} packages:")
     has_fix_dep = False
     for p, n_versions, dep_requires_fix in converted:
         if dep_requires_fix:
             has_fix_dep = True
-        print(
-            f" *  - {p} ({n_versions} versions) {'[FIX DEP.]' if dep_requires_fix else ''}",
-            file=outfile,
-        )
+        print(f" *  - {p} ({n_versions} versions) {'[FIX DEP.]' if dep_requires_fix else ''}")
+    # only display this if a package has the FIX DEP flag
     if has_fix_dep:
         print(
-            " * Dependency errors that require manual review are marked as [FIX DEP.].\n * See generated `package.py` for details.",
-            file=outfile,
+            " * Dependency errors that require manual review are marked as [FIX DEP.].\n * See generated `package.py` for details."
         )
 
-    # TODO @davhofer: for each package, create a flag with whether there are FIXMEs or not, i.e. need manual checking
-    print(" *", file=outfile)
+    if converted:
+        print(" *\n * All generated `package.py` files should be manually\n * reviewed.")
+
+    print(" *")
     if queue:
         print(
-            f" * `max_conversions` limit reached but {len(queue)} unconverted\n * dependency packages left:",
-            file=outfile,
+            f" * `max_conversions` limit reached but {len(queue)} unconverted\n * dependency packages left:"
         )
         for p in queue:
-            print(f" *  - {p}", file=outfile)
+            print(f" *  - {p}")
 
     else:
-        print(" * No packages left.", file=outfile)
+        print(" * No packages left.")
 
-    print(" *", file=outfile)
+    print(" *")
     if conversion_failures:
         print(
-            f" * The following {len(conversion_failures)} packages could not be converted\n * due to errors:",
-            file=outfile,
+            f" * The following {len(conversion_failures)} packages could not be converted\n * due to errors:"
         )
         for p in conversion_failures:
-            print(f" *  - {p}", file=outfile)
+            print(f" *  - {p}")
 
     else:
-        print(" * No conversion failures.", file=outfile)
+        print(" * No conversion failures.")
 
-    print(" *\n * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *", file=outfile)
+    print(" *\n * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *")

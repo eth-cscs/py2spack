@@ -111,6 +111,7 @@ extend-select = [
 ]
 ignore = [
     "TD003", # [missing-todo-link]
+    "T201", # [print]
 ]
 
 

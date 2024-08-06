@@ -33,6 +33,11 @@ def main() -> None:
         "--repo-path", type=str, help="Path to local spack repository", default=None
     )
     parser.add_argument("--ignore", nargs="*", help="List of packages to ignore", default=None)
+    parser.add_argument(
+        "--testing",
+        action="store_true",
+        help="For testing purposes; adds the prefix 'test-' when saving packages",
+    )
 
     args = parser.parse_args()
 
@@ -42,6 +47,7 @@ def main() -> None:
         versions_per_package=args.versions_per_package,
         repo_path=args.repo_path,
         ignore=args.ignore,
+        use_test_prefix=args.testing,
     )
 
 
