@@ -229,7 +229,7 @@ def condensed_version_list(
     else:
         lo = _best_lowerbound(all_versions[i - 2], subset[0])
 
-    while j < len(subset):
+    while j < len(subset) and i < len(all_versions):
         if all_versions[i] != subset[j]:
             hi = _best_upperbound(subset[j - 1], all_versions[i])
             new_versions.append(sv.VersionRange(lo, hi))
