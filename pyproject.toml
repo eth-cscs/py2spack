@@ -1,5 +1,5 @@
 [build-system]
-requires = ["hatchling"]  # probably add some version constraints here 
+requires = ["hatchling>=1.18"]  # TODO @davhofer: probably add some version constraints here 
 build-backend = "hatchling.build"
 
 [project]
@@ -33,6 +33,11 @@ dependencies = [
 [project.urls]
 Home = "https://github.com/davhofer/py2spack/"
 
+[project.scripts]
+py2spack = "py2spack.cli:main"
+
+[tool.hatch.version]
+path = "src/py2spack/__init__.py"
 
 [tool.ruff]
     exclude = [

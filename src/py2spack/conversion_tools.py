@@ -544,22 +544,26 @@ def evaluate_marker(
 
 
 # TODO @davhofer: verify whether spack name actually corresponds to PyPI package
-def pkg_to_spack_name(name: str) -> str:
+def pkg_to_spack_name(name: str, use_test_prefix: bool = False) -> str:
     """Convert PyPI package name to Spack python package name."""
     spack_name: str = naming.simplify_name(name)
+
     # in general, if the package name already contains the "py-" prefix, we
     # don't want to add it again. exception: 3 existing packages on spack
     # with double "py-" prefix
     if spack_name != "python" and (
         not spack_name.startswith("py-")
         or spack_name
-        in [
+        in {
             "py-cpuinfo",
             "py-tes",
             "py-spy",
-        ]
+        }
     ):
-        spack_name = "py-" + spack_name
+        spack_name = f"py-{spack_name}"
+
+    if use_test_prefix:
+        spack_name = f"test-{spack_name}"
 
     return spack_name
 

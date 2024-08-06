@@ -5,6 +5,7 @@ from __future__ import annotations
 import abc
 import dataclasses
 import functools
+import re
 from collections.abc import Hashable
 from typing import Protocol
 
@@ -49,6 +50,10 @@ class PyProjectProvider(Protocol, Hashable):
     """General provider interface for Python distribution packages."""
 
     @abc.abstractmethod
+    def package_exists(self, name: str) -> bool:
+        """Check whether a package exists on the provider."""
+
+    @abc.abstractmethod
     def get_versions(self, name: str) -> list[vn.Version] | PyProjectProviderQueryError:
         """Get available package versions.
 
@@ -82,6 +87,7 @@ class PyPIProvider(PyProjectProvider):
 
         Data is cached.
         """
+        name = _normalize_package_name(name)
         url = (
             f"{self.base_url}{name}/" if self.base_url.endswith("/") else f"{self.base_url}/{name}/"
         )
@@ -103,6 +109,13 @@ class PyPIProvider(PyProjectProvider):
 
         data: dict = r.json()
         return data
+
+    def package_exists(self, name: str) -> bool:
+        """Check whether a package exists on the provider."""
+        response = self._get(name)
+        return isinstance(response, PyProjectProviderQueryError) and response.msg.endswith(
+            "(status code 404)"
+        )
 
     @functools.cache  # noqa: B019
     def get_versions(self, name: str) -> list[vn.Version] | PyProjectProviderQueryError:
@@ -136,15 +149,18 @@ class PyPIProvider(PyProjectProvider):
         if isinstance(all_metadata, PyProjectProviderQueryError):
             return all_metadata
 
-        metadata = all_metadata[version]
-        # python sdist archives contain a top level directory, e.g. "black-24.4.2/"
-        directory_str = f"{name}-{version}"
+        metadata = all_metadata.get(version)
+
+        if metadata is None:
+            return PyProjectProviderQueryError(f"No metadata for version {version} found on PyPI")
 
         # for type checker, we know these values are going to be strings
         assert isinstance(metadata["url"], str)
         assert isinstance(metadata["extension"], str)
+        assert isinstance(metadata["directory"], str)
 
-        return try_load_toml(metadata["url"], directory_str, metadata["extension"])
+        # python sdist archives contain a top level directory, e.g. "black-24.4.2/"
+        return try_load_toml(metadata["url"], metadata["directory"], metadata["extension"])
 
     @functools.cache  # noqa: B019
     def _get_distribution_metadata(
@@ -181,7 +197,9 @@ class PyPIProvider(PyProjectProvider):
             archive_ext = _parse_archive_extension(filename)
             assert isinstance(archive_ext, str)
 
-            v = _parse_version_from_filename(filename, name, archive_ext)
+            directory_name = filename[: -len(archive_ext)]
+
+            v = _parse_version_from_filename(directory_name, name)
 
             assert v is not None
 
@@ -196,6 +214,7 @@ class PyPIProvider(PyProjectProvider):
                 "url": f["url"],
                 "extension": archive_ext,
                 "hashes": hashes,
+                "directory": directory_name,
             }
 
         if not files_parsed:
@@ -245,6 +264,10 @@ class PyPIProvider(PyProjectProvider):
         return f"{name}/{most_recent['filename']}"
 
 
+def _normalize_package_name(name: str) -> str:
+    return re.sub(r"[-_.]+", "-", name).lower()
+
+
 def _parse_archive_extension(filename: str) -> str | PyProjectProviderQueryError:
     extension_list = [ext for ext in KNOWN_ARCHIVE_FORMATS if filename.endswith(ext)]
 
@@ -257,14 +280,14 @@ def _parse_archive_extension(filename: str) -> str | PyProjectProviderQueryError
     return max(extension_list, key=len)
 
 
-def _parse_version_from_filename(
-    filename: str, pkg_name: str, archive_ext: str
-) -> vn.Version | None:
+def _parse_version_from_filename(directory_name: str, pkg_name: str) -> vn.Version | None:
     """Parse version from filename and check correct formatting."""
     prefix = f"{pkg_name}-"
-    if not (filename.startswith(prefix) and filename.endswith(archive_ext)):
+    # in some cases the filename had underscores instead of dashes; handle this by
+    # normalizing the filename for the check
+    if not _normalize_package_name(directory_name).startswith(prefix):
         return None
-    version_str = filename[len(prefix) : -len(archive_ext)]
+    version_str = directory_name[len(prefix) :]
     try:
         parsed_version: vn.Version = vn.parse(version_str)
         return parsed_version
