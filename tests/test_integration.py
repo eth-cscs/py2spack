@@ -2,42 +2,47 @@
 
 from __future__ import annotations
 
-import sys
+import pathlib
 
-from py2spack import core, package_providers
+import pytest
+
+from py2spack import core
 
 
-def test_e2e_uninterrupted1() -> None:
+@pytest.mark.parametrize(
+    ("package"),
+    [
+        "black",
+        "tqdm",
+        "hatchling",
+    ],
+)
+def test_convert_package_writes_file(package: str) -> None:
     """Test end-to-end conversion of black package."""
-    provider = package_providers.PyPIProvider()
-    spack_pkg = core.convert_pkg("black", provider, last_n_versions=5)
+    cwd = pathlib.Path.cwd()
+    repo = cwd / "tests" / "test_data" / "test_repo"
 
-    assert spack_pkg is not None
+    core.convert_package(package, max_conversions=1, versions_per_package=3, repo_path=str(repo))
 
-    spack_pkg.print_pkg(outfile=sys.stdout)
+    file = repo / "packages" / f"py-{package}" / "package.py"
 
-    assert True
+    assert file.is_file()
 
+    if file.is_file():
+        file.unlink()
+        pkg_dir = repo / "packages" / f"py-{package}"
+        pkg_dir.rmdir()
 
-def test_e2e_uninterrupted2() -> None:
-    """Test end-to-end conversion of tqdm package."""
-    provider = package_providers.PyPIProvider()
-    spack_pkg = core.convert_pkg("tqdm", provider, last_n_versions=5)
-
-    assert spack_pkg is not None
-
-    spack_pkg.print_pkg(outfile=sys.stdout)
-
-    assert True
+        assert not file.is_file()
+        assert not pkg_dir.is_dir()
 
 
-def test_e2e_uninterrupted3() -> None:
-    """Test end-to-end conversion of pandas package."""
-    provider = package_providers.PyPIProvider()
-    spack_pkg = core.convert_pkg("pandas", provider, last_n_versions=2)
+def test_package_py_content():
+    # TODO: how to test whether content is correct?
+    pass
 
-    assert spack_pkg is not None
 
-    spack_pkg.print_pkg(outfile=sys.stdout)
-
-    assert True
+def test_spack_install():
+    # TODO: test whether spack installs packages correctly
+    # TODO: separate file?
+    pass

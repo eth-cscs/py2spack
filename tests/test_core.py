@@ -3,9 +3,59 @@
 from __future__ import annotations
 
 import pytest
+import pathlib
 from spack import spec
+from packaging import version as pv
+from packaging import requirements, specifiers
 
-from py2spack import core
+from py2spack import core, package_providers
+
+
+def test_format_types():
+    assert core._format_types({"build"}) == '"build"'
+    assert core._format_types({"run", "build"}) == '("build", "run")'
+
+
+def test_people_to_strings():
+    parsed_people = [
+        (None, None),
+        ("name", None),
+        (None, "hello@email.com"),
+        ("name", "name@email.com"),
+    ]
+    expected = ["name", "hello@email.com", "name, name@email.com"]
+
+    assert core._people_to_strings(parsed_people) == expected
+
+
+def test_convert_single():
+    provider = package_providers.PyPIProvider()
+    assert isinstance(core._convert_single("black", provider, num_versions=4), core.SpackPyPkg)
+
+    assert isinstance(core._convert_single("tqdm", provider, num_versions=4), core.SpackPyPkg)
+
+
+def test_package_exists_in_spack():
+    repo = pathlib.Path.cwd() / "tests" / "test_data" / "test_repo"
+
+    assert core._package_exists_in_spack("py-test-pkg", repo)
+
+    assert not core._package_exists_in_spack("not-a-package", repo)
+
+
+def test_get_spack_repo():
+    repo = pathlib.Path.cwd() / "tests" / "test_data" / "test_repo"
+
+    assert core._get_spack_repo(str(repo)) == repo
+
+
+def write_package_to_repo():
+    pass  # TODO
+
+
+def test_convert_package():
+    # TODO: test this here? basically end to end. move to integration
+    pass  # TODO
 
 
 @pytest.mark.parametrize(
@@ -78,7 +128,8 @@ from py2spack import core
     ],
 )
 def test_find_dependency_satisfiability_conflicts(
-    dep_list: list[tuple[spec.Spec, spec.Spec, str]], expected: list[core.DependencyConflictError]
+    dep_list: list[tuple[spec.Spec, spec.Spec, set[str]]],
+    expected: list[core.DependencyConflictError],
 ) -> None:
     """Unit tests for method."""
     assert core._find_dependency_satisfiability_conflicts(dep_list) == expected

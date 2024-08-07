@@ -12,10 +12,6 @@ from py2spack import conversion_tools, package_providers
 @pytest.mark.parametrize(
     ("prev", "curr"),
     [
-        # ("23.1-alpha1", "23.1.0"),
-        # ("23.1-alpha1", "23.1"),
-        # ("23.1.0", "23.2-alpha1"),
-        # ("23.1", "23.2-alpha1"),
         ("23.0", "23.0.0.1"),
         ("23.0", "23.0.1"),
         ("22.1.3.4.5", "22.1.6"),

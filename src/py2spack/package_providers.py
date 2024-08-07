@@ -199,7 +199,7 @@ class PyPIProvider(PyProjectProvider):
 
             directory_name = filename[: -len(archive_ext)]
 
-            v = _parse_version_from_filename(directory_name, name)
+            v = _parse_version_from_directory_name(directory_name, name)
 
             assert v is not None
 
@@ -280,7 +280,7 @@ def _parse_archive_extension(filename: str) -> str | PyProjectProviderQueryError
     return max(extension_list, key=len)
 
 
-def _parse_version_from_filename(directory_name: str, pkg_name: str) -> vn.Version | None:
+def _parse_version_from_directory_name(directory_name: str, pkg_name: str) -> vn.Version | None:
     """Parse version from filename and check correct formatting."""
     prefix = f"{pkg_name}-"
     # in some cases the filename had underscores instead of dashes; handle this by

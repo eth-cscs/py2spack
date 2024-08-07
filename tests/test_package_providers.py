@@ -52,29 +52,26 @@ def test_parse_archive_extension_invalid(filename: str) -> None:
 
 
 @pytest.mark.parametrize(
-    ("filename", "pkg_name", "archive_ext", "expected"),
+    ("dirname", "pkg_name", "expected"),
     [
-        ("black-24.4.2.tar.gz", "black", ".tar.gz", pv.Version("24.4.2")),
-        ("package-1.gz", "package", ".gz", pv.Version("1")),
+        ("black-24.4.2", "black", pv.Version("24.4.2")),
+        ("package-1", "package", pv.Version("1")),
         (
-            "python-3.4.5-alpha6.tar.bz2",
+            "python-3.4.5-alpha6",
             "python",
-            ".tar.bz2",
             pv.Version("3.4.5-alpha6"),
         ),
-        ("black-24.4.2.zip", "black", ".tar.gz", None),
-        ("black-24.4??.2.tar.gz", "black", ".tar.gz", None),
-        ("green-24.4.2.tar.gz", "black", ".tar.gz", None),
-        ("black-otherpackage-24.4.2.tar.gz", "black", ".tar.gz", None),
+        ("black-2..4.2.ok", "black", None),
+        ("black-24.4??.2", "black", None),
+        ("green-24.4.2", "black", None),
+        ("black-otherpackage-24.4.2", "black", None),
     ],
 )
 def test_parse_version_from_filename(
-    filename: str, pkg_name: str, archive_ext: str, expected: pv.Version | None
+    dirname: str, pkg_name: str, expected: pv.Version | None
 ) -> None:
     """Unit tests for method."""
-    assert (
-        package_providers._parse_version_from_filename(filename, pkg_name, archive_ext) == expected
-    )
+    assert package_providers._parse_version_from_directory_name(dirname, pkg_name) == expected
 
 
 tmptst = """

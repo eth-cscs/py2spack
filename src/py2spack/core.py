@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import bisect
 import dataclasses
 import logging
 import pathlib
@@ -131,9 +130,9 @@ def _people_to_strings(
     for p0, p1 in parsed_people:
         if p0 is None and p1 is None:
             continue
-        if isinstance(p1, str):
+        if isinstance(p1, str) and p0 is None:
             people.append(p1)
-        elif isinstance(p0, str):
+        elif isinstance(p0, str) and p1 is None:
             people.append(p0)
         else:
             people.append(f"{p0}, {p1}")
@@ -679,7 +678,6 @@ def _convert_single(
     name: str,
     provider: package_providers.PyProjectProvider,
     num_versions: int = 10,
-    required_version: pv.Version | None = None,
     use_test_prefix: bool = False,
 ) -> SpackPyPkg | None:
     """Convert a PyPI package to a Spack package.py."""
@@ -688,17 +686,6 @@ def _convert_single(
     if isinstance(versions, package_providers.PyProjectProviderQueryError):
         logging.warning("No valid versions found by provider %s", str(provider))
         return None
-
-    # if required_version is specified, make sure we take as many versions as needed to
-    # include it
-    if required_version is not None:
-        # find index of last version v <= required_version (then we have
-        # required_version >= v)
-        req_idx = bisect.bisect_right(versions, required_version) - 1
-        # number of (newest) versions we need in order to include required_version
-        num_versions_including_req = len(versions) - req_idx
-
-        num_versions = max(num_versions, num_versions_including_req)
 
     # for each version, parse pyproject.toml
     pyprojects: list[PyProject] = []
@@ -754,6 +741,7 @@ def _package_exists_in_spack(name: str, spack_repo: pathlib.Path) -> bool:
 
 
 def _get_spack_repo(repo_path: str | None) -> pathlib.Path:
+    # TODO @davhofer: cleanup/improve this function
     home = pathlib.Path.cwd().home()
     spack_repo = (
         home / "spack" / "var" / "spack" / "repos" / "builtin"
@@ -771,6 +759,8 @@ def _get_spack_repo(repo_path: str | None) -> pathlib.Path:
 
 
 def _write_package_to_repo(package: SpackPyPkg, spack_repo: pathlib.Path) -> bool:
+    if not spack_repo.is_dir():
+        return False
     try:
         pkg_dir = spack_repo / "packages" / package.name
         pkg_dir.mkdir()
