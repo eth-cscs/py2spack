@@ -42,12 +42,18 @@ python -m pytest
 
 ## Usage
 
-> Work in progress
-
-Currently, the main file can be executed to run through an example:
-
 ```
-python src/py2spack/main.py
+py2spack [-h] [--max-conversions MAX_CONVERSIONS] [--versions-per-package VERSIONS_PER_PACKAGE] [--repo-path REPO_PATH] [--ignore pkg1 pkg2 ...] [--testing] package
 ```
 
-This will build a `package.py` from the `.toml` files in `example_pyprojects/black/` and print the output to the console.
+Positional arguments:
+-  `package`: Name of the package
+
+Options:
+-  `-h`, `--help`: show this help message and exit
+-  `--max-conversions <n>`: Maximum number of packages that are converted. Default: `10`
+-  `--versions-per-package <n>`: Versions per package to be downloaded and converted. Default: `10`
+-  `--repo-path <path>`: Path to local spack repository. Default: `None`  
+    If no path is given, the tool will first look for the standard builtin Spack repository, and prompt the user for the path if none is found.
+-  `--ignore [pkg1 pkg2 ...]`: List of packages to ignore
+-  `--testing`: Optional flag for testing purposes; adds the prefix 'test-' to the package name when saving it
