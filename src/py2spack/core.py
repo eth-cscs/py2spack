@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import dataclasses
 import logging
+import os
 import pathlib
 import sys
 from typing import TextIO
@@ -742,17 +743,22 @@ def _package_exists_in_spack(name: str, spack_repo: pathlib.Path) -> bool:
 
 def _get_spack_repo(repo_path: str | None) -> pathlib.Path:
     # TODO @davhofer: cleanup/improve this function
-    home = pathlib.Path.cwd().home()
-    spack_repo = (
-        home / "spack" / "var" / "spack" / "repos" / "builtin"
-        if repo_path is None
-        else pathlib.Path(repo_path)
-    )
+    spack_repo = None
 
-    while not spack_repo.is_dir() or not (spack_repo / "packages").is_dir():
-        spack_repo_str = input(
-            f"'{spack_repo}' is not a spack repo. Please enter full path to local spack repository:"
+    if repo_path is not None:
+        # get provided repository
+        spack_repo = pathlib.Path(repo_path)
+    elif "SPACK_ROOT" in os.environ:
+        # or try to find default repo
+        spack_root = pathlib.Path(os.environ["SPACK_ROOT"])
+        spack_repo = spack_root / "var" / "spack" / "repos" / "builtin"
+
+    # if no repo found, prompt user
+    while spack_repo is None or not spack_repo.is_dir() or not (spack_repo / "packages").is_dir():
+        prompt = (
+            "No spack repo found" if spack_repo is None else f"'{spack_repo}' is not a spack repo"
         )
+        spack_repo_str = input(f"{prompt}. Please enter full path to local spack repository:")
         spack_repo = pathlib.Path(spack_repo_str)
 
     return spack_repo

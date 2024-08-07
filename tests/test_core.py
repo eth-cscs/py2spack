@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-import pytest
+import os
 import pathlib
+
+import pytest
 from spack import spec
-from packaging import version as pv
-from packaging import requirements, specifiers
 
 from py2spack import core, package_providers
 
@@ -43,10 +43,18 @@ def test_package_exists_in_spack():
     assert not core._package_exists_in_spack("not-a-package", repo)
 
 
-def test_get_spack_repo():
+def test_get_spack_repo1():
     repo = pathlib.Path.cwd() / "tests" / "test_data" / "test_repo"
 
     assert core._get_spack_repo(str(repo)) == repo
+
+
+def test_get_spack_repo2():
+    if "SPACK_ROOT" in os.environ:
+        spack_dir = pathlib.Path(os.environ["SPACK_ROOT"])
+        builtin_repo = spack_dir / "var" / "spack" / "repos" / "builtin"
+        if builtin_repo.is_dir():
+            assert core._get_spack_repo(None) == builtin_repo
 
 
 def write_package_to_repo():
@@ -155,7 +163,7 @@ def test_format_dependency(dep_spec: spec.Spec, when_spec: spec.Spec, expected: 
     assert core._format_dependency(dep_spec, when_spec) == expected
 
 
-# TODO @davhofer: functions to test:  # noqa: TD003
+# TODO @davhofer: functions to test:
 # _get_spack_version_hash_list
 # _people_to_strings
 # SpackPyPkg._get_dependencies
