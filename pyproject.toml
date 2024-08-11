@@ -30,7 +30,7 @@ dependencies = [
     "tomli>=1.2",
 ]
 [project.optional-dependencies]
-test = ["pytest>=8.0", "pytest-cov>=5.0"]
+tests = ["pytest>=8.0", "pytest-cov>=5.0"]
 
 [project.urls]
 Home = "https://github.com/davhofer/py2spack/"
