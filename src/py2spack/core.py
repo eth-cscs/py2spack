@@ -6,6 +6,7 @@ import dataclasses
 import logging
 import os
 import pathlib
+import subprocess
 import sys
 from typing import TextIO
 
@@ -745,12 +746,24 @@ def _is_spack_repo(repo: pathlib.Path) -> bool:
     return repo.is_dir() and (repo / "packages").is_dir() and (repo / "repo.yaml").is_file()
 
 
+def _run_spack_command(command: str) -> None | str:
+    """Run spack command and return stdout."""
+    command_list = command.split(" ")
+    if command_list[0] != "spack":
+        command_list.insert(0, "spack")
+    try:
+        return subprocess.run(command_list, capture_output=True, text=True, check=True).stdout
+    except (FileNotFoundError, subprocess.CalledProcessError):
+        return None
+
+
 def _get_spack_repo(repo_path: str | None) -> pathlib.Path:
     # TODO @davhofer: cleanup/improve this function
 
-    # 1. if user provided a repo, try it
-    # 2. check if default repository exists
-    # 3. ask to provide a repo
+    # 1. if user provided a repo, use that
+    # 2. check if default repository exists using $SPACK_ROOT
+    # 3. try to use spack command to get repos
+    # 4. ask user to provide a repo
     spack_repo = None
 
     if repo_path is not None:
@@ -760,6 +773,16 @@ def _get_spack_repo(repo_path: str | None) -> pathlib.Path:
         # or try to find default repo
         spack_root = pathlib.Path(os.environ["SPACK_ROOT"])
         spack_repo = spack_root / "var" / "spack" / "repos" / "builtin"
+    else:
+        # this makes it easier to use if spack was installed from github with pip
+        result = _run_spack_command("spack repo list")
+        if result is not None:
+            try:
+                first_line = result.split("\n")[0]
+                repo_path = first_line.split(" ")[-1]
+                spack_repo = pathlib.Path(repo_path)
+            except IndexError:
+                pass
 
     # if no repo found, prompt user
     while spack_repo is None or not _is_spack_repo(spack_repo):
