@@ -741,8 +741,16 @@ def _package_exists_in_spack(name: str, spack_repo: pathlib.Path) -> bool:
     return pkg_dir.is_dir() and (pkg_dir / "package.py").is_file()
 
 
+def _is_spack_repo(repo: pathlib.Path) -> bool:
+    return repo.is_dir() and (repo / "packages").is_dir() and (repo / "repo.yaml").is_file()
+
+
 def _get_spack_repo(repo_path: str | None) -> pathlib.Path:
     # TODO @davhofer: cleanup/improve this function
+
+    # 1. if user provided a repo, try it
+    # 2. check if default repository exists
+    # 3. ask to provide a repo
     spack_repo = None
 
     if repo_path is not None:
@@ -754,11 +762,10 @@ def _get_spack_repo(repo_path: str | None) -> pathlib.Path:
         spack_repo = spack_root / "var" / "spack" / "repos" / "builtin"
 
     # if no repo found, prompt user
-    while spack_repo is None or not spack_repo.is_dir() or not (spack_repo / "packages").is_dir():
-        prompt = (
-            "No spack repo found" if spack_repo is None else f"'{spack_repo}' is not a spack repo"
+    while spack_repo is None or not _is_spack_repo(spack_repo):
+        spack_repo_str = input(
+            "No spack repo found. Please enter full path to local spack repository:"
         )
-        spack_repo_str = input(f"{prompt}. Please enter full path to local spack repository:")
         spack_repo = pathlib.Path(spack_repo_str)
 
     return spack_repo
@@ -852,7 +859,9 @@ def convert_package(  # noqa: PLR0913 [too many arguments in function definition
             )
             converted.append((name, spackpkg.num_converted_versions, dep_requires_fix))
 
+            print("dependencies:")
             for dep in spackpkg.original_dependencies:
+                print(dep)
                 if (
                     dep != "python"
                     and dep not in queue
@@ -862,6 +871,7 @@ def convert_package(  # noqa: PLR0913 [too many arguments in function definition
                     )  # this also covers packages already converted in this run
                     and dep not in ignore_list
                 ):
+                    print("append")
                     queue.append(dep)
     except KeyboardInterrupt:
         # display the current package in summary
@@ -892,9 +902,6 @@ def _print_summary(
             " * Dependency errors that require manual review are marked as [FIX DEP.].\n * See generated `package.py` for details."
         )
 
-    if converted:
-        print(" *\n * All generated `package.py` files should be manually\n * reviewed.")
-
     print(" *")
     if queue:
         print(
@@ -916,5 +923,10 @@ def _print_summary(
 
     else:
         print(" * No conversion failures.")
+
+    if converted:
+        print(" *\n * All generated `package.py` files should be manually\n * reviewed.")
+
+    print(" *")
 
     print(" *\n * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *")
