@@ -882,7 +882,6 @@ def convert_package(  # noqa: PLR0913 [too many arguments in function definition
             )
             converted.append((name, spackpkg.num_converted_versions, dep_requires_fix))
 
-            print("dependencies:")
             for dep in spackpkg.original_dependencies:
                 print(dep)
                 if (
@@ -894,7 +893,6 @@ def convert_package(  # noqa: PLR0913 [too many arguments in function definition
                     )  # this also covers packages already converted in this run
                     and dep not in ignore_list
                 ):
-                    print("append")
                     queue.append(dep)
     except KeyboardInterrupt:
         # display the current package in summary

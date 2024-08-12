@@ -1,0 +1,31 @@
+name: Run Tests
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main 
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    container:
+      image: davhofer/py2spack-testing:latest 
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Install Python package and dependencies
+        run: python -m pip install .[tests]
+
+      - name: Check PYTHONPATH
+        run: echo $PYTHONPATH
+
+      - name: Check SPACK_ROOT
+        run: echo $SPACK_ROOT
+
+      - name: Run tests
+        run: python -m pytest
