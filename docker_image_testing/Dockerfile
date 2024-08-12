@@ -19,6 +19,3 @@ RUN git clone --depth=100 --branch=releases/v0.22 https://github.com/spack/spack
 ENV PYTHONPATH="/app/spack/lib/spack/external/_vendoring:/app/spack/lib/spack/external:/app/spack/lib/spack"
 
 ENV SPACK_ROOT="/app/spack"
-
-# Adjust working directory 
-WORKDIR /app/py2spack

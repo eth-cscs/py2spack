@@ -17,11 +17,9 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
-        with:
-          path: /app/py2spack
 
       - name: Install Python package and dependencies
-        run: pip install /app/py2spack
+        run: pip install .
 
       - name: Check PYTHONPATH
         run: echo $PYTHONPATH
