@@ -282,9 +282,9 @@ def _parse_archive_extension(filename: str) -> str | PyProjectProviderQueryError
 
 def _parse_version_from_directory_name(directory_name: str, pkg_name: str) -> vn.Version | None:
     """Parse version from filename and check correct formatting."""
-    prefix = f"{pkg_name}-"
     # in some cases the filename had underscores instead of dashes; handle this by
     # normalizing the filename for the check
+    prefix = f"{_normalize_package_name(pkg_name)}-"
     if not _normalize_package_name(directory_name).startswith(prefix):
         return None
     version_str = directory_name[len(prefix) :]
