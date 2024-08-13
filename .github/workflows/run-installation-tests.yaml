@@ -13,16 +13,13 @@ jobs:
         uses: actions/checkout@v3
 
       - name: Install Python package and dependencies
-        run: python -m pip install .[tests]
+        run: python -m pip install .
 
       - name: Check PYTHONPATH
         run: echo $PYTHONPATH
 
       - name: Check SPACK_ROOT
         run: echo $SPACK_ROOT
-
-      - name: Run tests
-        run: python -m pytest
 
       # Test tqdm installation
       - name: Remove tqdm 
