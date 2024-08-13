@@ -1,18 +1,12 @@
 name: Run Tests
 
-on:
-  push:
-    branches:
-      - main
-  pull_request:
-    branches:
-      - main 
+on: [push, pull_request]
 
 jobs:
   test:
     runs-on: ubuntu-latest
     container:
-      image: davhofer/py2spack-testing:latest 
+      image: davhofer/py2spack-spack-installation-test:latest 
 
     steps:
       - name: Checkout code
@@ -29,3 +23,70 @@ jobs:
 
       - name: Run tests
         run: python -m pytest
+
+
+      # Test tqdm installation
+      - name: Remove tqdm 
+        run: |
+          rm -rd $SPACK_PKGS/py-tqdm || true
+
+      - name: Run py2spack conversion
+        run: py2spack --versions-per-package 5 --max-conversions 2 tqdm
+
+      - name: Install py-tqdm with Spack
+        run: spack install py-tqdm
+
+      - name: Load py-tqdm with Spack
+        run: spack load py-tqdm
+
+      - name: Test tqdm import
+        run: python -c 'import tqdm;'
+
+      - name: Check if the last command succeeded
+        run: echo "tqdm import succeeded"
+        if: success()
+
+      # Test pygments installation
+      - name: Remove pygments and colorama dependency 
+        run: |
+          rm -rd $SPACK_PKGS/py-pygments || true
+          rm -rd $SPACK_PKGS/py-colorama || true
+
+      - name: Run py2spack conversion
+        run: py2spack --versions-per-package 5 --max-conversions 2 pygments
+
+      - name: Install py-pygments with Spack
+        run: spack install py-pygments
+
+      - name: Load py-pygments with Spack
+        run: spack load py-pygments
+
+      - name: Test pygments import
+        run: python -c 'import pygments;'
+
+      - name: Check if the last command succeeded
+        run: echo "pygments import succeeded"
+        if: success()
+
+      # Test flask installation
+      - name: Remove flask and jinja2 dependency 
+        run: |
+          rm -rd $SPACK_PKGS/py-flask || true
+          rm -rd $SPACK_PKGS/py-jinja2 || true
+
+      - name: Run py2spack conversion
+        run: py2spack --versions-per-package 5 --max-conversions 2 flask
+
+      - name: Install py-flask with Spack
+        run: spack install py-flask
+
+      - name: Load py-flask with Spack
+        run: spack load py-flask
+
+      - name: Test pygments import
+        run: python -c 'import flask;'
+
+      - name: Check if the last command succeeded
+        run: echo "flask import succeeded"
+        if: success()
+
