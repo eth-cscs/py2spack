@@ -1,4 +1,4 @@
-name: Run Pytest
+name: Run Installation Tests
 
 on: [push, pull_request]
 
