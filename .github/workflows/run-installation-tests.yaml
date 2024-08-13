@@ -1,0 +1,79 @@
+name: Run Installation Tests
+
+on: [push, pull_request]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    container:
+      image: davhofer/py2spack-spack-installation-test:latest 
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Install Python package and dependencies
+        run: python -m pip install .
+
+      - name: Check PYTHONPATH
+        run: echo $PYTHONPATH
+
+      - name: Check SPACK_ROOT
+        run: echo $SPACK_ROOT
+
+      # Test tqdm installation
+      - name: Remove tqdm 
+        run: |
+          rm -rd $SPACK_PKGS/py-tqdm || true
+
+      - name: Run py2spack conversion
+        run: py2spack --versions-per-package 5 --max-conversions 2 tqdm
+
+      - name: Install py-tqdm with Spack
+        run: $SPACK_ROOT/bin/spack install py-tqdm
+
+      - name: Load py-tqdm with Spack and test import
+        run: cd $SPACK_ROOT && . share/spack/setup-env.sh && spack load py-tqdm && python -c 'import tqdm;'
+
+      - name: Check if the last command succeeded
+        run: echo "tqdm import succeeded"
+        if: success()
+
+      # Test pygments installation
+      - name: Remove pygments and dependency colorama 
+        run: |
+          rm -rd $SPACK_PKGS/py-pygments || true
+          rm -rd $SPACK_PKGS/py-colorama || true
+
+      - name: Run py2spack conversion
+        run: py2spack --versions-per-package 5 --max-conversions 2 pygments
+
+      - name: Install py-pygments with Spack
+        run: $SPACK_ROOT/bin/spack install py-pygments
+
+      - name: Load py-pygments with Spack and test import
+        run: cd $SPACK_ROOT && . share/spack/setup-env.sh && spack load py-pygments && python -c 'import pygments;'
+
+      - name: Check if the last command succeeded
+        run: echo "pygments import succeeded"
+        if: success()
+
+      # Test flask installation
+      - name: Remove flask and dependency jinja2 
+        run: |
+          rm -rd $SPACK_PKGS/py-flask || true
+          rm -rd $SPACK_PKGS/py-jinja2 || true
+
+      - name: Run py2spack conversion
+        run: py2spack --versions-per-package 5 --max-conversions 2 flask
+
+      - name: Install py-flask with Spack
+        run: $SPACK_ROOT/bin/spack install py-flask
+
+      - name: Load py-flask with Spack and test import
+        run: cd $SPACK_ROOT && . share/spack/setup-env.sh && spack load py-flask && python -c 'import flask;'
+
+      - name: Check if the last command succeeded
+        run: echo "flask import succeeded"
+        if: success()
+

@@ -1,18 +1,12 @@
-name: Run Tests
+name: Run Pytest
 
-on:
-  push:
-    branches:
-      - main
-  pull_request:
-    branches:
-      - main 
+on: [push, pull_request]
 
 jobs:
   test:
     runs-on: ubuntu-latest
     container:
-      image: davhofer/py2spack-testing:latest 
+      image: davhofer/py2spack-spack-installation-test:latest 
 
     steps:
       - name: Checkout code
