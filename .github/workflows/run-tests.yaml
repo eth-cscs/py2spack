@@ -24,6 +24,8 @@ jobs:
       - name: Run tests
         run: python -m pytest
 
+      - name : Set up Spack 
+        run: cd $SPACK_ROOT && . share/spack/setup-env.sh
 
       # Test tqdm installation
       - name: Remove tqdm 
