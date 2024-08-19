@@ -201,7 +201,9 @@ class PyPIProvider(PyProjectProvider):
 
             v = _parse_version_from_directory_name(directory_name, name)
 
-            assert v is not None
+            if v is None:
+                # if there is an error with parsing the version from the filename
+                continue
 
             # usually we expect there to be a sha256 hash, but in theory there could be
             # other or no hashes at all
