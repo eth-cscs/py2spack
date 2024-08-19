@@ -4,6 +4,6 @@ project(${SKBUILD_PROJECT_NAME} LANGUAGES CXX)
 set(PYBIND11_NEWPYTHON ON)
 find_package(pybind11 CONFIG REQUIRED)
 
-pybind11_add_module(example example.cpp)
+pybind11_add_module(minimal minimal.cpp)
 
-install(TARGETS example LIBRARY DESTINATION .)
+install(TARGETS minimal LIBRARY DESTINATION .)
