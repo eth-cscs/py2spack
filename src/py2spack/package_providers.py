@@ -72,6 +72,167 @@ class PyProjectProvider(Protocol, Hashable):
 
 
 @dataclasses.dataclass(frozen=True)
+class GitHubProvider(PyProjectProvider):
+    """Obtains project versions and distribution packages through GitHub.
+
+    See: https://docs.github.com/en/rest/releases/releases?apiVersion=2022-11-28
+    Various public and private methods of this class cache their return values in order
+    to minimize the number of requests to the provider.
+    """
+
+    base_url: str = "https://api.github.com/repos/"
+
+    @functools.cache  # noqa: B019
+    def _get(self, repo_specifier: str) -> dict | PyProjectProviderQueryError:
+        """."""
+        assert len(repo_specifier.split("/")) == 2  # noqa: PLR2004 [magic value]
+
+        url = (
+            f"{self.base_url}{'' if self.base_url.endswith('/') else '/'}{repo_specifier}/releases"
+        )
+
+        r = requests.get(url, headers={"accept": "application/vnd.github+json"}, timeout=10)
+
+        if r.status_code != utils.HTTP_STATUS_SUCCESS:
+            if r.status_code == utils.HTTP_STATUS_NOT_FOUND:
+                return PyProjectProviderQueryError(
+                    f"Package {repo_specifier} not found on GitHub (status code 404)"
+                )
+
+            return PyProjectProviderQueryError(
+                f"Error when querying GitHub API (status code {r.status_code})."
+                f" Response: {r.text}"
+            )
+
+        data: dict = r.json()
+        return data
+
+    def parse_repo_name(self, name: str) -> str | None:
+        """Parse the github repository name.
+
+        'name' must be either a url to a repository, or of the form "user/repository".
+        Returns a string of the form "user/repository" or None.
+        """
+        if len(name.split("/")) == 2:  # noqa: PLR2004 [magic value]
+            return name
+
+        github_url = "https://github.com/"
+        if name.startswith(github_url):
+            # remove base url
+            repo_specifier = name[len(github_url) :]
+            # if .git suffix exists, remove it
+            if repo_specifier.endswith(".git"):
+                repo_specifier = repo_specifier[:-4]
+            # check formatting
+            if len(repo_specifier.split("/")) == 2:  # noqa: PLR2004 [magic value]
+                return repo_specifier
+
+        return None
+
+    def get_download_url(self, name: str) -> str:
+        """Returns the tarball download url (for Spack)."""
+        versions_with_urls = self._get_versions_with_urls(name)
+        assert isinstance(versions_with_urls, list)
+        return versions_with_urls[-1][1]
+
+    def get_git_repo(self, name: str) -> str:
+        """Returns the github repository url."""
+        repo_specifier = self.parse_repo_name(name)
+        assert repo_specifier is not None
+        return f"https://github.com/{repo_specifier}.git"
+
+    def get_package_name(self, name: str) -> str:
+        """Returns the actual package name ('pkg-name' instead of 'user/pkg-name')."""
+        repo_specifier = self.parse_repo_name(name)
+        assert repo_specifier is not None
+        return repo_specifier.split("/")[1]
+
+    def package_exists(self, name: str) -> bool:
+        """Check whether a package exists on the provider."""
+        repo_specifier = self.parse_repo_name(name)
+        if repo_specifier is None:
+            return False
+        response = self._get(repo_specifier)
+        return not (
+            isinstance(response, PyProjectProviderQueryError)
+            and response.msg.endswith("(status code 404)")
+        )
+
+    def _parse_version_from_tag(self, tag: str) -> vn.Version | None:
+        if tag.startswith("v"):
+            tag = tag[1:]
+        try:
+            parsed_version: vn.Version = vn.parse(tag)
+            return parsed_version
+
+        except vn.InvalidVersion:
+            return None
+
+    def get_versions(self, name: str) -> list[vn.Version] | PyProjectProviderQueryError:
+        """Get available package versions.
+
+        Returns an error if no versions are found.
+        """
+        versions_with_urls = self._get_versions_with_urls(name)
+        result: list[vn.Version] | PyProjectProviderQueryError = []
+        if isinstance(versions_with_urls, PyProjectProviderQueryError):
+            result = versions_with_urls
+
+        elif not versions_with_urls:
+            result = PyProjectProviderQueryError("No valid versions found")
+
+        else:
+            result = sorted([v for v, url in versions_with_urls])
+
+        return result
+
+    def _get_versions_with_urls(
+        self, name: str
+    ) -> list[tuple[vn.Version, str]] | PyProjectProviderQueryError:
+        repo_specifier = self.parse_repo_name(name)
+        if repo_specifier is None:
+            return PyProjectProviderQueryError(
+                f"{name} is not a correctly formatted repository specifier. Please provide either the GitHub repo url, or a string of the form 'user/repository_name'"
+            )
+
+        releases = self._get(repo_specifier)
+        if isinstance(releases, PyProjectProviderQueryError):
+            return releases
+
+        # get tarball url + version pairs
+        versions_with_urls = [
+            (
+                self._parse_version_from_tag(release.get("tag_name", "")),
+                release.get("tarball_url", ""),
+            )
+            for release in releases
+        ]
+        return [(v, url) for v, url in versions_with_urls if v is not None]
+
+    def get_pyproject(self, name: str, version: vn.Version) -> dict | PyProjectProviderQueryError:
+        """Get the contents of the pyproject.toml file for the specified version."""
+        versions_with_urls = self._get_versions_with_urls(name)
+        if isinstance(versions_with_urls, PyProjectProviderQueryError):
+            return versions_with_urls
+
+        result = [url for v, url in versions_with_urls if v == version and url]
+        if not result:
+            return PyProjectProviderQueryError(f"No download url found for {name} v{version}")
+
+        url = result[0]
+
+        return _try_load_pyproject(url, name, ".tar.gz")
+
+    def get_sdist_hash(
+        self, name: str, version: vn.Version
+    ) -> dict[str, str] | PyProjectProviderQueryError:
+        """Get the sdist hash (sha256 if available) for the specified version."""
+        return PyProjectProviderQueryError(
+            f"GitHub doesn't provide sdist checksums ({name} v{version})"
+        )
+
+
+@dataclasses.dataclass(frozen=True)
 class PyPIProvider(PyProjectProvider):
     """Obtains project versions and distribution packages through the PyPI JSON API.
 
@@ -88,9 +249,7 @@ class PyPIProvider(PyProjectProvider):
         Data is cached.
         """
         name = _normalize_package_name(name)
-        url = (
-            f"{self.base_url}{name}/" if self.base_url.endswith("/") else f"{self.base_url}/{name}/"
-        )
+        url = f"{self.base_url}{'' if self.base_url.endswith('/') else '/'}{name}/"
         r = requests.get(
             url,
             headers={"Accept": "application/vnd.pypi.simple.v1+json"},
@@ -113,8 +272,9 @@ class PyPIProvider(PyProjectProvider):
     def package_exists(self, name: str) -> bool:
         """Check whether a package exists on the provider."""
         response = self._get(name)
-        return isinstance(response, PyProjectProviderQueryError) and response.msg.endswith(
-            "(status code 404)"
+        return not (
+            isinstance(response, PyProjectProviderQueryError)
+            and response.msg.endswith("(status code 404)")
         )
 
     @functools.cache  # noqa: B019
@@ -157,10 +317,9 @@ class PyPIProvider(PyProjectProvider):
         # for type checker, we know these values are going to be strings
         assert isinstance(metadata["url"], str)
         assert isinstance(metadata["extension"], str)
-        assert isinstance(metadata["directory"], str)
 
         # python sdist archives contain a top level directory, e.g. "black-24.4.2/"
-        return try_load_toml(metadata["url"], metadata["directory"], metadata["extension"])
+        return _try_load_pyproject(metadata["url"], name, metadata["extension"])
 
     @functools.cache  # noqa: B019
     def _get_distribution_metadata(
@@ -199,7 +358,7 @@ class PyPIProvider(PyProjectProvider):
 
             directory_name = filename[: -len(archive_ext)]
 
-            v = _parse_version_from_directory_name(directory_name, name)
+            v = self._parse_version_from_directory_name(directory_name, name)
 
             if v is None:
                 # if there is an error with parsing the version from the filename
@@ -265,6 +424,23 @@ class PyPIProvider(PyProjectProvider):
 
         return f"{name}/{most_recent['filename']}"
 
+    def _parse_version_from_directory_name(
+        self, directory_name: str, pkg_name: str
+    ) -> vn.Version | None:
+        """Parse version from filename and check correct formatting."""
+        # in some cases the filename had underscores instead of dashes; handle this by
+        # normalizing the filename for the check
+        prefix = f"{_normalize_package_name(pkg_name)}-"
+        if not _normalize_package_name(directory_name).startswith(prefix):
+            return None
+        version_str = directory_name[len(prefix) :]
+        try:
+            parsed_version: vn.Version = vn.parse(version_str)
+            return parsed_version
+
+        except vn.InvalidVersion:
+            return None
+
 
 def _normalize_package_name(name: str) -> str:
     return re.sub(r"[-_.]+", "-", name).lower()
@@ -282,22 +458,6 @@ def _parse_archive_extension(filename: str) -> str | PyProjectProviderQueryError
     return max(extension_list, key=len)
 
 
-def _parse_version_from_directory_name(directory_name: str, pkg_name: str) -> vn.Version | None:
-    """Parse version from filename and check correct formatting."""
-    # in some cases the filename had underscores instead of dashes; handle this by
-    # normalizing the filename for the check
-    prefix = f"{_normalize_package_name(pkg_name)}-"
-    if not _normalize_package_name(directory_name).startswith(prefix):
-        return None
-    version_str = directory_name[len(prefix) :]
-    try:
-        parsed_version: vn.Version = vn.parse(version_str)
-        return parsed_version
-
-    except vn.InvalidVersion:
-        return None
-
-
 def _is_archive_format_known(filename: str) -> bool:
     return any(filename.endswith(ext) for ext in KNOWN_ARCHIVE_FORMATS)
 
@@ -305,8 +465,8 @@ def _is_archive_format_known(filename: str) -> bool:
 # TODO @davhofer: handle zip archives
 # TODO @davhofer: should this function be placed in the PyProjectProvider Protocol? or in utils?
 # generic function for loading any file/filetype?
-def try_load_toml(
-    url: str, directory_name: str, archive_ext: str
+def _try_load_pyproject(
+    url: str, name: str, archive_ext: str
 ) -> dict | PyProjectProviderQueryError:
     """Load sdist from url and extract pyproject.toml contents."""
     sdist_file_obj = utils.download_bytes(url)
@@ -314,18 +474,12 @@ def try_load_toml(
     result: dict | None | PyProjectProviderQueryError
 
     if sdist_file_obj is None:
-        result = PyProjectProviderQueryError(
-            f"Unable to download package {directory_name} from {url}"
-        )
+        result = PyProjectProviderQueryError(f"Unable to download package {name} from {url}")
 
     elif archive_ext in KNOWN_ARCHIVE_FORMATS:
-        file_path = f"{directory_name}/pyproject.toml"
-        result = utils.extract_from_tar(sdist_file_obj, file_path)
+        result = utils.extract_toml_from_tar(sdist_file_obj, "pyproject.toml")
         if result is None:
-            # try again, checking if the pyproject is not in a subdir
-            result = utils.extract_from_tar(sdist_file_obj, "pyproject.toml")
-            if result is None:
-                result = PyProjectProviderQueryError(f"Unable to extract {file_path} from archive")
+            result = PyProjectProviderQueryError("Unable to extract pyproject.toml from archive")
 
     else:
         result = PyProjectProviderQueryError(

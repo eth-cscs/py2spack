@@ -67,11 +67,12 @@ def test_parse_archive_extension_invalid(filename: str) -> None:
         ("black-otherpackage-24.4.2", "black", None),
     ],
 )
-def test_parse_version_from_filename(
+def test_pypiprovider_parse_version_from_filename(
     dirname: str, pkg_name: str, expected: pv.Version | None
 ) -> None:
     """Unit tests for method."""
-    assert package_providers._parse_version_from_directory_name(dirname, pkg_name) == expected
+    provider = package_providers.PyPIProvider()
+    assert provider._parse_version_from_directory_name(dirname, pkg_name) == expected
 
 
 tmptst = """
@@ -153,5 +154,4 @@ def test_pypilookup_get_files():
 # TODO @davhofer:
 # _acceptable_version -> same as in conversion tools
 # PyPILookup functions: _get, get_versions, get_files
-# _extract_from_tar
-# try_load_toml
+# try_load_pyproject

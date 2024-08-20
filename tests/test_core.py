@@ -28,11 +28,21 @@ def test_people_to_strings():
     assert core._people_to_strings(parsed_people) == expected
 
 
-def test_convert_single():
-    provider = package_providers.PyPIProvider()
-    assert isinstance(core._convert_single("black", provider, num_versions=4), core.SpackPyPkg)
-
-    assert isinstance(core._convert_single("tqdm", provider, num_versions=4), core.SpackPyPkg)
+@pytest.mark.parametrize(
+    ("name"),
+    [
+        ("black"),
+        ("tqdm"),
+        ("https://github.com/tqdm/tqdm"),
+        ("tqdm/tqdm"),
+    ],
+)
+def test_convert_single(name: str):
+    pypi_provider = package_providers.PyPIProvider()
+    gh_provider = package_providers.GitHubProvider()
+    assert isinstance(
+        core._convert_single(name, pypi_provider, gh_provider, num_versions=4), core.SpackPyPkg
+    )
 
 
 def test_package_exists_in_spack():
