@@ -304,9 +304,11 @@ class SpackPyPkg:
     """
 
     name: str = ""
-    _pypi_name: str = ""
+    pypi_name: str = ""
     _description: str | None = None
-    _pypi: str = ""
+    pypi: str = ""
+    git: str = ""
+    url: str = ""
     _versions_with_checksum: list[tuple[sv.Version, str, str]] = dataclasses.field(
         default_factory=list
     )
@@ -352,7 +354,7 @@ class SpackPyPkg:
 
         Does not include pypi field, versions, or the dependencies.
         """
-        self._pypi_name = pyproject.name
+        self.pypi_name = pyproject.name
         self.name = conversion_tools.pkg_to_spack_name(
             pyproject.name, use_test_prefix=use_test_prefix
         )
@@ -436,7 +438,7 @@ class SpackPyPkg:
         )
 
         if self.dependency_conflict_errors:
-            logging.warning("Package '%s' contains incompatible requirements", self._pypi_name)
+            logging.warning("Package '%s' contains incompatible requirements", self.pypi_name)
 
         # store dependencies by their type string (e.g. type=("build", "run"))
         for dep_spec, when_spec, types in final_dependency_list:
@@ -553,7 +555,11 @@ class SpackPyPkg:
             print("    # FIXME: add homepage", file=outfile)
             print('    # homepage = ""', file=outfile)
 
-        print(f'    pypi = "{self._pypi}"', file=outfile)
+        if self.pypi:
+            print(f'    pypi = "{self.pypi}"', file=outfile)
+        elif self.git:
+            print(f'    url = "{self.url}"', file=outfile)
+            print(f'    git = "{self.git}"', file=outfile)
 
         print("", file=outfile)
 
@@ -572,14 +578,12 @@ class SpackPyPkg:
             for author in self._authors:
                 print(f"    # {author}", file=outfile)
 
-            print("", file=outfile)
-
         if self._maintainers:
             print("    # Maintainers:", file=outfile)
             for maintainer in self._maintainers:
                 print(f"    # {maintainer}", file=outfile)
 
-            print("", file=outfile)
+        print("", file=outfile)
 
         for v, hash_type, hash_value in self._versions_with_checksum:
             print(f'    version("{v!s}", {hash_type}="{hash_value}")', file=outfile)
@@ -678,11 +682,20 @@ class SpackPyPkg:
 
 def _convert_single(
     name: str,
-    provider: package_providers.PyProjectProvider,
+    pypi_provider: package_providers.PyPIProvider,
+    gh_provider: package_providers.GitHubProvider,
     num_versions: int = 10,
     use_test_prefix: bool = False,
 ) -> SpackPyPkg | None:
     """Convert a PyPI package to a Spack package.py."""
+    # go through providers to check if one of them has the package
+    is_gh_package = gh_provider.package_exists(name)
+    provider = gh_provider if is_gh_package else pypi_provider
+
+    if not provider.package_exists(name):
+        logging.warning("Package %s not found through any of the supplied providers", name)
+        return None
+
     # download available versions through provider (pypi, github)
     versions = provider.get_versions(name)
     if isinstance(versions, package_providers.PyProjectProviderQueryError):
@@ -723,10 +736,18 @@ def _convert_single(
     spackpkg = SpackPyPkg()
     spackpkg.all_versions = versions
 
-    if isinstance(provider, package_providers.PyPIProvider):
-        spackpkg._pypi = provider.get_pypi_package_base(name)
+    # always use PyPIProvider for dependencies
+    spackpkg.build_from_pyprojects(name, pyprojects, pypi_provider, use_test_prefix=use_test_prefix)
 
-    spackpkg.build_from_pyprojects(name, pyprojects, provider, use_test_prefix=use_test_prefix)
+    if isinstance(provider, package_providers.PyPIProvider):
+        spackpkg.pypi = provider.get_pypi_package_base(name)
+    elif isinstance(provider, package_providers.GitHubProvider):
+        spackpkg.url = provider.get_download_url(name)
+        spackpkg.git = provider.get_git_repo(name)
+        spackpkg.pypi_name = provider.get_package_name(name)
+        spackpkg.name = conversion_tools.pkg_to_spack_name(
+            spackpkg.pypi_name, use_test_prefix=use_test_prefix
+        )
 
     return spackpkg
 
@@ -841,7 +862,8 @@ def convert_package(  # noqa: PLR0913 [too many arguments in function definition
     # Explanation of ignore comment: PyProjectProvider protocol requires the __hash__()
     # method to be implemented, which is done by the @dataclass decorator for
     # PyPIProvider (but mypy does not detect this)
-    provider = package_providers.PyPIProvider()  # type: ignore[abstract]
+    pypi_provider = package_providers.PyPIProvider()  # type: ignore[abstract]
+    gh_provider = package_providers.GitHubProvider()  # type: ignore[abstract]
 
     # queue of packages to be converted
     queue: list[str] = [name]
@@ -858,7 +880,11 @@ def convert_package(  # noqa: PLR0913 [too many arguments in function definition
 
             print(f"\nConverting package {name}...")
             spackpkg = _convert_single(
-                name, provider, num_versions=versions_per_package, use_test_prefix=use_test_prefix
+                name,
+                pypi_provider,
+                gh_provider,
+                num_versions=versions_per_package,
+                use_test_prefix=use_test_prefix,
             )
 
             if spackpkg is None:

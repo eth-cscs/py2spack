@@ -48,7 +48,7 @@ def test_download_bytes_invalid(url: str) -> None:
     assert utils.download_bytes(url) is None
 
 
-def test_extract_from_tar_success() -> None:
+def test_extract_toml_from_tar_success() -> None:
     """Unit tests for method."""
     expected = {
         "tool": {
@@ -75,14 +75,14 @@ def test_extract_from_tar_success() -> None:
     with p.open("rb") as file:
         file_content = file.read()
     file_like_obj = io.BytesIO(file_content)
-    assert utils.extract_from_tar(file_like_obj, toml_path) == expected
+    assert utils.extract_toml_from_tar(file_like_obj, toml_path) == expected
 
 
-def test_extract_from_tar_invalid() -> None:
+def test_extract_toml_from_tar_invalid() -> None:
     """Unit tests for method."""
     toml_path = "test_archive123/pyproject.toml"
     p = pathlib.Path("tests/test_data/test_archive.tar.gz")
     with p.open("rb") as file:
         file_content = file.read()
     file_like_obj = io.BytesIO(file_content)
-    assert utils.extract_from_tar(file_like_obj, toml_path) is None
+    assert utils.extract_toml_from_tar(file_like_obj, toml_path) is None
