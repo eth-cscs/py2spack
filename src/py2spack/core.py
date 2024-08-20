@@ -909,7 +909,6 @@ def convert_package(  # noqa: PLR0913 [too many arguments in function definition
             converted.append((name, spackpkg.num_converted_versions, dep_requires_fix))
 
             for dep in spackpkg.original_dependencies:
-                print(dep)
                 if (
                     dep != "python"
                     and dep not in queue
