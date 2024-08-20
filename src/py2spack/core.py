@@ -172,6 +172,7 @@ class PyProject:
     dependency_errors: list[pyproject_parsing.ConfigurationError] = dataclasses.field(
         default_factory=list
     )
+    provider: package_providers.PyProjectProvider | None = None
 
     @classmethod
     def from_toml(
@@ -491,7 +492,7 @@ class SpackPyPkg:
         self,
         name: str,
         pyprojects: list[PyProject],
-        provider: package_providers.PyProjectProvider,
+        pypi_provider: package_providers.PyPIProvider,
         use_test_prefix: bool = False,
     ) -> None:
         """Build the spack package from pyprojects."""
@@ -505,18 +506,21 @@ class SpackPyPkg:
         # s.t. newest version is on top in package.py
         for p in pyprojects:
             spack_version = conversion_tools.packaging_to_spack_version(p.version)
-            hashdict = provider.get_sdist_hash(name, p.version)
-            if isinstance(hashdict, dict) and hashdict:
-                hash_key, hash_value = next(iter(hashdict.items()))
 
-                if hash_key in SPACK_CHECKSUM_HASHES:
-                    self._versions_with_checksum.append((spack_version, hash_key, hash_value))
-                    continue
+            if p.provider is not None:
+                hashdict = p.provider.get_sdist_hash(name, p.version)
+
+                if isinstance(hashdict, dict) and hashdict:
+                    hash_key, hash_value = next(iter(hashdict.items()))
+
+                    if hash_key in SPACK_CHECKSUM_HASHES:
+                        self._versions_with_checksum.append((spack_version, hash_key, hash_value))
+                        continue
 
             self._versions_missing_checksum.append(spack_version)
 
         # convert all dependencies (for the selected versions)
-        self._dependencies_from_pyprojects(pyprojects, provider)
+        self._dependencies_from_pyprojects(pyprojects, pypi_provider)
 
     def print_pkg(self, outfile: TextIO = sys.stdout) -> None:  # noqa: C901, PLR0912, PLR0915
         """Format and write the package to 'outfile'.
@@ -725,6 +729,9 @@ def _convert_single(
                 "Unable to parse pyproject.toml for %s version %s: %s", name, str(v), str(pyproject)
             )
             continue
+
+        # add provider to pyproject for convenience
+        pyproject.provider = provider
 
         pyprojects.append(pyproject)
 

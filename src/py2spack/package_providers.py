@@ -5,6 +5,8 @@ from __future__ import annotations
 import abc
 import dataclasses
 import functools
+import hashlib
+import io
 import re
 from collections.abc import Hashable
 from typing import Protocol
@@ -15,7 +17,7 @@ from packaging import version as vn
 from py2spack import utils
 
 
-KNOWN_ARCHIVE_FORMATS = [
+TARBALL_ARCHIVE_FORMATS = [
     ".tar",
     ".tar.gz",
     ".tar.bz2",
@@ -107,6 +109,33 @@ class GitHubProvider(PyProjectProvider):
         data: dict = r.json()
         return data
 
+    @functools.cache  # noqa: B019
+    def _get_pyproject_and_checksum(
+        self, name: str, version: vn.Version
+    ) -> tuple[dict | PyProjectProviderQueryError, str] | PyProjectProviderQueryError:
+        """Downloads and extracts tarball and returns checksum and pyproject data."""
+        versions_with_urls = self._get_versions_with_urls(name)
+        if isinstance(versions_with_urls, PyProjectProviderQueryError):
+            return versions_with_urls
+
+        result = [url for v, url in versions_with_urls if v == version and url]
+        if not result:
+            return PyProjectProviderQueryError(f"No download url found for {name} v{version}")
+
+        url = result[0]
+
+        sdist_file_obj = utils.download_bytes(url)
+
+        if sdist_file_obj is None:
+            return PyProjectProviderQueryError(f"Unable to download package {name} from {url}")
+
+        pyproject: dict | PyProjectProviderQueryError = _extract_pyproject(
+            sdist_file_obj, ".tar.gz"
+        )
+
+        checksum: str = hashlib.sha256(sdist_file_obj.getvalue()).hexdigest()
+        return (pyproject, checksum)
+
     def parse_repo_name(self, name: str) -> str | None:
         """Parse the github repository name.
 
@@ -186,6 +215,7 @@ class GitHubProvider(PyProjectProvider):
 
         return result
 
+    @functools.cache  # noqa: B019
     def _get_versions_with_urls(
         self, name: str
     ) -> list[tuple[vn.Version, str]] | PyProjectProviderQueryError:
@@ -211,25 +241,19 @@ class GitHubProvider(PyProjectProvider):
 
     def get_pyproject(self, name: str, version: vn.Version) -> dict | PyProjectProviderQueryError:
         """Get the contents of the pyproject.toml file for the specified version."""
-        versions_with_urls = self._get_versions_with_urls(name)
-        if isinstance(versions_with_urls, PyProjectProviderQueryError):
-            return versions_with_urls
-
-        result = [url for v, url in versions_with_urls if v == version and url]
-        if not result:
-            return PyProjectProviderQueryError(f"No download url found for {name} v{version}")
-
-        url = result[0]
-
-        return _try_load_pyproject(url, name, ".tar.gz")
+        result = self._get_pyproject_and_checksum(name, version)
+        if isinstance(result, PyProjectProviderQueryError):
+            return result
+        return result[0]
 
     def get_sdist_hash(
         self, name: str, version: vn.Version
     ) -> dict[str, str] | PyProjectProviderQueryError:
         """Get the sdist hash (sha256 if available) for the specified version."""
-        return PyProjectProviderQueryError(
-            f"GitHub doesn't provide sdist checksums ({name} v{version})"
-        )
+        result = self._get_pyproject_and_checksum(name, version)
+        if isinstance(result, PyProjectProviderQueryError):
+            return result
+        return {"sha256": result[1]}
 
 
 @dataclasses.dataclass(frozen=True)
@@ -447,7 +471,7 @@ def _normalize_package_name(name: str) -> str:
 
 
 def _parse_archive_extension(filename: str) -> str | PyProjectProviderQueryError:
-    extension_list = [ext for ext in KNOWN_ARCHIVE_FORMATS if filename.endswith(ext)]
+    extension_list = [ext for ext in TARBALL_ARCHIVE_FORMATS if filename.endswith(ext)]
 
     if not extension_list:
         # we return an API error here because the filenames are obtained through
@@ -459,25 +483,19 @@ def _parse_archive_extension(filename: str) -> str | PyProjectProviderQueryError
 
 
 def _is_archive_format_known(filename: str) -> bool:
-    return any(filename.endswith(ext) for ext in KNOWN_ARCHIVE_FORMATS)
+    return any(filename.endswith(ext) for ext in TARBALL_ARCHIVE_FORMATS)
 
 
 # TODO @davhofer: handle zip archives
 # TODO @davhofer: should this function be placed in the PyProjectProvider Protocol? or in utils?
 # generic function for loading any file/filetype?
-def _try_load_pyproject(
-    url: str, name: str, archive_ext: str
+def _extract_pyproject(
+    file_bytes: io.BytesIO, archive_ext: str
 ) -> dict | PyProjectProviderQueryError:
-    """Load sdist from url and extract pyproject.toml contents."""
-    sdist_file_obj = utils.download_bytes(url)
-
     result: dict | None | PyProjectProviderQueryError
 
-    if sdist_file_obj is None:
-        result = PyProjectProviderQueryError(f"Unable to download package {name} from {url}")
-
-    elif archive_ext in KNOWN_ARCHIVE_FORMATS:
-        result = utils.extract_toml_from_tar(sdist_file_obj, "pyproject.toml")
+    if archive_ext in TARBALL_ARCHIVE_FORMATS:
+        result = utils.extract_toml_from_tar(file_bytes, "pyproject.toml")
         if result is None:
             result = PyProjectProviderQueryError("Unable to extract pyproject.toml from archive")
 
@@ -487,3 +505,15 @@ def _try_load_pyproject(
         )
 
     return result
+
+
+def _try_load_pyproject(
+    url: str, name: str, archive_ext: str
+) -> dict | PyProjectProviderQueryError:
+    """Load sdist from url and extract pyproject.toml contents."""
+    sdist_file_obj = utils.download_bytes(url)
+
+    if sdist_file_obj is None:
+        return PyProjectProviderQueryError(f"Unable to download package {name} from {url}")
+
+    return _extract_pyproject(sdist_file_obj, archive_ext)
