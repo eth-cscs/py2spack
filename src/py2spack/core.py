@@ -842,9 +842,8 @@ def _write_package_to_repo(package: SpackPyPkg, spack_repo: pathlib.Path) -> boo
 
 
 # TODO @davhofer: allow multiple providers/user specification/check a list of providers for package
-# TODO @davhofer: handle packages from github by instantiating a special github provider for it
 # TODO @davhofer: some sort of progress bar/console output while converting, downloading archives, etc.
-# TODO @davhofer: currently, dependencies for variants/optional dependencies are also converted. Make this optional?
+# TODO @davhofer: currently, dependencies for variants/optional dependencies are also converted. Make this optional? Add flag to disable conversion of optional/extra dependencies
 def convert_package(  # noqa: PLR0913 [too many arguments in function definition]
     name: str,
     max_conversions: int = 10,
@@ -880,7 +879,7 @@ def convert_package(  # noqa: PLR0913 [too many arguments in function definition
     # packages that could not be converted and written at all
     conversion_failures: list[str] = []
 
-    # allow user to cancel the process and still show summary
+    # allow user to cancel (Ctrl+C) the process and still show summary
     try:
         while queue and (max_conversions == -1 or len(converted) < max_conversions):
             name = queue.pop()
@@ -920,10 +919,10 @@ def convert_package(  # noqa: PLR0913 [too many arguments in function definition
                     dep != "python"
                     and dep not in queue
                     and dep not in conversion_failures
+                    and dep not in ignore_list
                     and not _package_exists_in_spack(
                         dep, spack_repo
                     )  # this also covers packages already converted in this run
-                    and dep not in ignore_list
                 ):
                     queue.append(dep)
     except KeyboardInterrupt:
@@ -939,7 +938,7 @@ def _print_summary(
     conversion_failures: list[str],
 ) -> None:
     print(
-        "\n\nNOTE: python packages in Spack have the prefix 'py-' (e.g. 'py-pandas' instead of 'pandas')."
+        "\n\nNOTE: converted packages are saved in the Spack repo with the prefix 'py-' (e.g. 'py-pandas' instead of 'pandas')."
     )
     print("\n\n * * * * * * * * * * * * * SUMMARY * * * * * * * * * * * * *\n *")
 
