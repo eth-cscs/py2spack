@@ -6,15 +6,18 @@ import abc
 import dataclasses
 import functools
 import hashlib
-import io
 import re
 from collections.abc import Hashable
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
 import requests
 from packaging import version as vn
 
 from py2spack import utils
+
+
+if TYPE_CHECKING:
+    import io
 
 
 TARBALL_ARCHIVE_FORMATS = [
