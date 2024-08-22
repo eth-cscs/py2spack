@@ -441,7 +441,8 @@ class SpackPyPkg:
         if self.dependency_conflict_errors:
             logging.warning("Package '%s' contains incompatible requirements", self.pypi_name)
 
-        # store dependencies by their type string (e.g. type=("build", "run"))
+        # store dependencies by their type string (e.g. type=("build", "run")) to make
+        # writing the package.py file later easier
         for dep_spec, when_spec, types in final_dependency_list:
             # convert the set of types to a string as it would be displayed in
             # the package.py, e.g. '("build", "run")'.
