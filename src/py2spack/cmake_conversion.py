@@ -9,9 +9,12 @@ from spack import spec
 from spack.util import naming
 
 
+CMAKE_VERSION_NUM_COMPONENTS = 4
+
+
 @dataclasses.dataclass(frozen=True)
 class CMakeParseError:
-    """."""
+    """Error while parsing and handling data from CMakeLists.txt."""
 
     msg: str
 
@@ -38,7 +41,7 @@ class CMakeVersion:
 
 def _parse_single_version(version_string: str) -> CMakeVersion | None:
     components_str = version_string.split(".")
-    if len(components_str) > 4:
+    if len(components_str) > CMAKE_VERSION_NUM_COMPONENTS:
         return None
     try:
         components: list[int | None] = [int(x) for x in components_str]
@@ -60,11 +63,12 @@ def _parse_single_version(version_string: str) -> CMakeVersion | None:
 def _parse_cmake_version(
     version_string: str,
 ) -> CMakeVersion | tuple[CMakeVersion, CMakeVersion] | None:
+    # version string should be of the form "v" or "v1...v2"
     version_range = version_string.split("...")
     result: CMakeVersion | tuple[CMakeVersion, CMakeVersion] | None = None
     if len(version_range) == 1:
         result = _parse_single_version(version_range[0])
-    elif len(version_range) == 2:
+    elif len(version_range) == 2:  # noqa: PLR2004 [magic value]
         v1 = _parse_single_version(version_range[0])
         v2 = _parse_single_version(version_range[1])
 
@@ -75,21 +79,17 @@ def _parse_cmake_version(
 
 def _convert_cmake_minimum_required(
     command: ast.Command,
-) -> spec.Spec | CMakeParseError:
+) -> spec.Spec:
     """Convert a cmake 'cmake_minimum_required' command to a packaging Requirement."""
-    # TODO: check command isinstance of cmake_minimum_required ??
-    assert len(command.args) >= 2
+    assert len(command.args) >= 2  # noqa: PLR2004 [magic value]
     version_token = command.args[1]
+
     assert isinstance(version_token, lexer.Token)
     assert version_token.kind == "RAW"
     cmake_version = _parse_cmake_version(version_token.value)
-    result: CMakeParseError | spec.Spec
 
     if cmake_version is None:
-        result = CMakeParseError(
-            f"Unable to convert 'cmake_minimum_required(\"{version_token.value}\")'"
-        )
-        # TODO: add cmake dependency outside
+        result = spec.Spec("cmake")
     elif isinstance(cmake_version, CMakeVersion):
         result = spec.Spec(f"cmake @{cmake_version.format()}:")
     else:
@@ -100,9 +100,9 @@ def _convert_cmake_minimum_required(
 
 def _convert_find_package(command: ast.Command) -> spec.Spec | CMakeParseError:
     """Convert a cmake 'find_package' command to a Spack spec."""
-    # TODO: check command isinstance of find_package ??
-    # TODO: verification/error handling
+    # TODO @davhofer: verification/error handling?
     package = command.args[0].value
+    # canonicalize the name for spack
     package_spack = naming.simplify_name(package)
 
     version = None
@@ -110,19 +110,22 @@ def _convert_find_package(command: ast.Command) -> spec.Spec | CMakeParseError:
         optional_version_token = command.args[1]
         version = _parse_single_version(optional_version_token.value)
 
-    # TODO: semantics of find_package dependency version, look for EXACT keyword (or whatever its called)
+    exact_version_modifier = ""
+    for arg in command.args:
+        if arg.value == "EXACT":
+            exact_version_modifier = "="
 
-    # TODO: correct semantics, is >= fine/desired?
-    spec_string = package_spack if version is None else f"{package_spack} @{version.format()}"
+    spec_string = (
+        package_spack
+        if version is None
+        else f"{package_spack} @{exact_version_modifier}{version.format()}"
+    )
 
     return spec.Spec(spec_string)
 
 
-# TODO: extract cmakelists.txt data from source dist archive... extract toml, parse toml, parse backend
-# and then if necessary directly extract cmakelists...
-
-
 def convert_cmake_dependencies(cmakelists_data: str) -> list[spec.Spec]:
+    """Convert the contenets of a CMakeLists.txt to Spack Specs."""
     relevant_identifiers = [
         "cmake_minimum_required",
         "find_package",
@@ -138,8 +141,6 @@ def convert_cmake_dependencies(cmakelists_data: str) -> list[spec.Spec]:
     ]
 
     result = []
-
-    # TODO: canonicalize the name for spack
 
     for node in nodes:
         converted_node = None
