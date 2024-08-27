@@ -22,15 +22,21 @@ def test_convert_package_writes_file(package: str) -> None:
     cwd = pathlib.Path.cwd()
     repo = cwd / "tests" / "test_data" / "test_repo"
 
-    core.convert_package(package, max_conversions=1, versions_per_package=3, repo_path=str(repo))
+    core.convert_package(
+        package,
+        max_conversions=1,
+        versions_per_package=5,
+        repo_path=str(repo),
+        use_test_prefix=True,
+    )
 
-    file = repo / "packages" / f"py-{package}" / "package.py"
+    file = repo / "packages" / f"test-py-{package}" / "package.py"
 
     assert file.is_file()
 
     if file.is_file():
         file.unlink()
-        pkg_dir = repo / "packages" / f"py-{package}"
+        pkg_dir = repo / "packages" / f"test-py-{package}"
         pkg_dir.rmdir()
 
         assert not file.is_file()

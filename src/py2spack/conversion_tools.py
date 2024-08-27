@@ -254,12 +254,12 @@ def condensed_version_list(
 def _pkg_specifier_set_to_version_list(
     pkg: str,
     specifier_set: specifiers.SpecifierSet,
-    provider: package_providers.PyProjectProvider,
+    provider: package_providers.PackageProvider,
 ) -> sv.VersionList:
     """Convert the specifier set to an equivalent list of version ranges."""
     all_versions = _get_python_versions() if pkg == "python" else provider.get_versions(pkg)
     result = sv.VersionList()
-    if not isinstance(all_versions, package_providers.PyProjectProviderQueryError):
+    if not isinstance(all_versions, package_providers.PackageProviderQueryError):
         matching = [s for s in all_versions if specifier_set.contains(s, prereleases=True)]
         if matching:
             result = condensed_version_list(matching, all_versions)
@@ -267,7 +267,7 @@ def _pkg_specifier_set_to_version_list(
 
 
 def _eval_python_version_marker(
-    op: str, value: str, provider: package_providers.PyProjectProvider
+    op: str, value: str, provider: package_providers.PackageProvider
 ) -> sv.VersionList | None:
     # TODO @davhofer: there might be still some bug caused by python_version vs
     # python_full_version differences.
@@ -341,7 +341,7 @@ def _eval_platform_constraint(
 
 def _eval_python_constraint(
     node: tuple[markers.Variable, markers.Op, markers.Value],  # type: ignore[name-defined]
-    provider: package_providers.PyProjectProvider,
+    provider: package_providers.PackageProvider,
 ) -> bool | list[spec.Spec] | None:
     variable, op, value = node
     versions = _eval_python_version_marker(op.value, value.value, provider)
@@ -366,7 +366,7 @@ def _eval_python_constraint(
 
 def _eval_constraint(
     node: tuple[markers.Variable, markers.Op, markers.Value],  # type: ignore[name-defined]
-    provider: package_providers.PyProjectProvider,
+    provider: package_providers.PackageProvider,
 ) -> None | bool | list[spec.Spec]:
     """Evaluate a environment marker (variable, operator, value).
 
@@ -431,7 +431,7 @@ def _eval_constraint(
 
 def _eval_node(
     node: tuple[markers.Variable, markers.Op, markers.Value] | list[Any],  # type: ignore[name-defined]
-    provider: package_providers.PyProjectProvider,
+    provider: package_providers.PackageProvider,
 ) -> None | bool | list[spec.Spec]:
     if isinstance(node, tuple):
         return _eval_constraint(node, provider)
@@ -473,7 +473,7 @@ def _union(lhs: list[spec.Spec], rhs: list[spec.Spec]) -> list[spec.Spec]:
 
 
 def _eval_and(
-    group: list[Any], version_provider: package_providers.PyProjectProvider
+    group: list[Any], version_provider: package_providers.PackageProvider
 ) -> bool | list[Any] | None:
     lhs = _eval_node(group[0], version_provider)
     if lhs is False:
@@ -497,7 +497,7 @@ def _eval_and(
 
 
 def _do_evaluate_marker(
-    node: list[Any], provider: package_providers.PyProjectProvider
+    node: list[Any], provider: package_providers.PackageProvider
 ) -> None | bool | list[spec.Spec]:
     """Recursively try to evaluate a node (in the marker expression tree).
 
@@ -532,7 +532,7 @@ def _do_evaluate_marker(
 
 
 def evaluate_marker(
-    m: markers.Marker, provider: package_providers.PyProjectProvider
+    m: markers.Marker, provider: package_providers.PackageProvider
 ) -> bool | None | list[spec.Spec]:
     """Evaluate a marker.
 
@@ -570,7 +570,7 @@ def pkg_to_spack_name(name: str, use_test_prefix: bool = False) -> str:
 
 def convert_requirement(
     r: requirements.Requirement,
-    provider: package_providers.PyProjectProvider,
+    provider: package_providers.PackageProvider,
     from_extra: str | None = None,
 ) -> list[tuple[spec.Spec, spec.Spec]] | ConversionError:
     """Convert a packaging Requirement to its Spack equivalent.

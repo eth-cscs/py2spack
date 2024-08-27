@@ -41,16 +41,15 @@ def test_convert_single(name: str):
     pypi_provider = package_providers.PyPIProvider()
     gh_provider = package_providers.GitHubProvider()
     assert isinstance(
-        core._convert_single(name, pypi_provider, gh_provider, num_versions=4), core.SpackPyPkg
+        core._convert_single(name, pypi_provider, gh_provider, num_versions=5), core.SpackPyPkg
     )
 
 
 def test_package_exists_in_spack():
-    repo = pathlib.Path.cwd() / "tests" / "test_data" / "test_repo"
+    assert core._package_exists_in_spack("py-black")
+    assert core._package_exists_in_spack("gcc")
 
-    assert core._package_exists_in_spack("py-test-pkg", repo)
-
-    assert not core._package_exists_in_spack("not-a-package", repo)
+    assert not core._package_exists_in_spack("not-a-package")
 
 
 def test_get_spack_repo1():

@@ -47,7 +47,7 @@ def test_parse_archive_extension_invalid(filename: str) -> None:
     """Unit tests for method."""
     assert isinstance(
         package_providers._parse_archive_extension(filename),
-        package_providers.PyProjectProviderQueryError,
+        package_providers.PackageProviderQueryError,
     )
 
 
