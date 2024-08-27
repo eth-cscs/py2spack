@@ -889,7 +889,7 @@ def convert_package(  # noqa: PLR0913 [too many arguments in function definition
     """
     ignore_list: list[str] = [] if ignore is None else ignore
 
-    spack_repo = _get_spack_repo(repo_path)
+    spack_repo = spack_utils.get_spack_repo(repo_path)
     print(f"Using Spack repository at {spack_repo}")
 
     spack_name = conversion_tools.pkg_to_spack_name(name)
