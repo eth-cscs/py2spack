@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import dataclasses
 import logging
-import os
 import pathlib
 import sys
 from typing import TextIO
