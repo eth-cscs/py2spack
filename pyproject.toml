@@ -129,6 +129,7 @@ known-third-party = [
   "requests",
   "tomli",
   "typing_extensions",
+  "cmake_parser",
 ]
 lines-after-imports = 2
 order-by-type = true
@@ -187,6 +188,7 @@ disallow_untyped_defs = false
 ignore_missing_imports = true
 module = [
   "spack.*",
+  "cmake_parser",
 ]
 
 [tool.pytest.ini_options]
