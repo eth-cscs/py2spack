@@ -40,6 +40,7 @@ def run_spack_command(command: str) -> None | str:
     return subprocess.run(command, capture_output=True, text=True, shell=True, check=False).stdout
 
 
+
 def get_spack_repo(repo_path: str | None) -> pathlib.Path:
     """Find a valid Spack repository for the user."""
     # TODO @davhofer: cleanup/improve this function
