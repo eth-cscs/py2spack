@@ -28,17 +28,23 @@ def is_spack_repo(repo: pathlib.Path) -> bool:
 
 def run_spack_command(command: str) -> None | str:
     """Run spack command and return stdout."""
-    command_list = command.split(" ")
-    if command_list[0] != "spack":
-        command_list.insert(0, "spack")
+    # check if spack command is available (returncode != 0 => not available)
+    if subprocess.run(
+        "spack -h", capture_output=True, text=True, shell=True, check=False
+    ).returncode:
+        cmd_list = command.split(" ")
+        assert cmd_list[0] == "spack"
+        cmd_list[0] = "$SPACK_ROOT/bin/spack"
+        command = " ".join(cmd_list)
 
-    cmd = " ".join(command_list)
-    return subprocess.run(cmd, capture_output=True, text=True, shell=True, check=False).stdout
+    return subprocess.run(command, capture_output=True, text=True, shell=True, check=False).stdout
+
 
 
 def get_spack_repo(repo_path: str | None) -> pathlib.Path:
     """Find a valid Spack repository for the user."""
     # TODO @davhofer: cleanup/improve this function
+    # TODO @davhofer: allow user to choose spack repo from available ones
 
     # 1. if user provided a repo, use that
     # 2. check if default repository exists using $SPACK_ROOT

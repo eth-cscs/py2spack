@@ -21,7 +21,7 @@ def test_get_spack_repo2():
 
 
 def test_package_exists_in_spack():
-    assert spack_utils.package_exists_in_spack("py-black")
-    assert spack_utils.package_exists_in_spack("gcc")
+    assert spack_utils.package_exists_in_spack("py-hatchling")
+    assert spack_utils.package_exists_in_spack("automake")
 
     assert not spack_utils.package_exists_in_spack("not-a-package")
