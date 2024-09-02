@@ -14,7 +14,8 @@ def package_exists_in_spack(name: str) -> bool:
     The function relies on the `spack list` cli command, thus all repositories
     known to Spack will be considered (but only those).
     """
-    result = run_spack_command(f"spack list {name}")
+    # result = run_spack_command(f"spack list {name}")
+    result = run_spack_command(f"$SPACK_ROOT/bin/spack list {name}")
     if result is not None:
         pattern = r"(\b)(?<!-)" + re.escape(name) + r"(?!-)\b"
         return re.search(pattern, result) is not None
@@ -28,12 +29,7 @@ def is_spack_repo(repo: pathlib.Path) -> bool:
 
 def run_spack_command(command: str) -> None | str:
     """Run spack command and return stdout."""
-    command_list = command.split(" ")
-    if command_list[0] != "spack":
-        command_list.insert(0, "spack")
-
-    cmd = " ".join(command_list)
-    return subprocess.run(cmd, capture_output=True, text=True, shell=True, check=False).stdout
+    return subprocess.run(command, capture_output=True, text=True, shell=True, check=False).stdout
 
 
 def get_spack_repo(repo_path: str | None) -> pathlib.Path:

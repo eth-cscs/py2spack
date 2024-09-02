@@ -22,7 +22,7 @@ jobs:
         run: echo $SPACK_ROOT
 
       - name: Check py-hatchling
-        run: spack list py-hatchling
+        run: $SPACK_ROOT/bin/spack list py-hatchling
 
       - name: Run tests
         run: python -m pytest
