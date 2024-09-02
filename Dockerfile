@@ -22,5 +22,8 @@ ENV SPACK_ROOT="/app/spack"
 
 ENV SPACK_PKGS="/app/spack/var/spack/repos/builtin/packages"
 
-RUN /app/spack/bin/spack install py-hatchling py-blinker py-itsdangerous py-werkzeug
+# add spack to path
+ENV PATH="/app/spack/bin:${PATH}"
+
+RUN spack install py-hatchling py-blinker py-itsdangerous py-werkzeug
 

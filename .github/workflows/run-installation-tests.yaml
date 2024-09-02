@@ -6,7 +6,7 @@ jobs:
   test:
     runs-on: ubuntu-latest
     container:
-      image: davhofer/py2spack-spack-installation-test:latest 
+      image: davhofer/py2spack-spack-installation-test-py3.12:latest
 
     steps:
       - name: Checkout code
@@ -22,7 +22,7 @@ jobs:
         run: echo $SPACK_ROOT
 
       # Test tqdm installation
-      - name: Remove tqdm 
+      - name: Remove tqdm
         run: |
           rm -rd $SPACK_PKGS/py-tqdm || true
 
@@ -30,7 +30,7 @@ jobs:
         run: py2spack --versions-per-package 5 --max-conversions 2 tqdm
 
       - name: Install py-tqdm with Spack
-        run: $SPACK_ROOT/bin/spack install py-tqdm
+        run: spack install py-tqdm
 
       - name: Load py-tqdm with Spack and test import
         run: cd $SPACK_ROOT && . share/spack/setup-env.sh && spack load py-tqdm && python -c 'import tqdm;'
@@ -40,7 +40,7 @@ jobs:
         if: success()
 
       # Test pygments installation
-      - name: Remove pygments and dependency colorama 
+      - name: Remove pygments and dependency colorama
         run: |
           rm -rd $SPACK_PKGS/py-pygments || true
           rm -rd $SPACK_PKGS/py-colorama || true
@@ -49,7 +49,7 @@ jobs:
         run: py2spack --versions-per-package 5 --max-conversions 2 pygments
 
       - name: Install py-pygments with Spack
-        run: $SPACK_ROOT/bin/spack install py-pygments
+        run: spack install py-pygments
 
       - name: Load py-pygments with Spack and test import
         run: cd $SPACK_ROOT && . share/spack/setup-env.sh && spack load py-pygments && python -c 'import pygments;'
@@ -59,7 +59,7 @@ jobs:
         if: success()
 
       # Test flask installation
-      - name: Remove flask and dependency jinja2 
+      - name: Remove flask and dependency jinja2
         run: |
           rm -rd $SPACK_PKGS/py-flask || true
           rm -rd $SPACK_PKGS/py-jinja2 || true
@@ -68,7 +68,7 @@ jobs:
         run: py2spack --versions-per-package 5 --max-conversions 2 flask
 
       - name: Install py-flask with Spack
-        run: $SPACK_ROOT/bin/spack install py-flask
+        run: spack install py-flask
 
       - name: Load py-flask with Spack and test import
         run: cd $SPACK_ROOT && . share/spack/setup-env.sh && spack load py-flask && python -c 'import flask;'
@@ -76,4 +76,3 @@ jobs:
       - name: Check if the last command succeeded
         run: echo "flask import succeeded"
         if: success()
-
