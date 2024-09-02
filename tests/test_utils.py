@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import io
 import pathlib
 
 import pytest
@@ -26,7 +25,7 @@ from py2spack import utils
 )
 def test_download_bytes(url: str) -> None:
     """Unit tests for method."""
-    assert isinstance(utils.download_bytes(url), io.BytesIO)
+    assert isinstance(utils.download_bytes(url), bytes)
 
 
 @pytest.mark.parametrize(
@@ -48,7 +47,7 @@ def test_download_bytes_invalid(url: str) -> None:
     assert utils.download_bytes(url) is None
 
 
-def test_extract_toml_from_tar_success() -> None:
+def test_extract_file_contents_from_tar_bytes_success() -> None:
     """Unit tests for method."""
     expected = {
         "tool": {
@@ -74,15 +73,13 @@ def test_extract_toml_from_tar_success() -> None:
     p = pathlib.Path("tests/test_data/test_archive.tar.gz")
     with p.open("rb") as file:
         file_content = file.read()
-    file_like_obj = io.BytesIO(file_content)
-    assert utils.extract_toml_from_tar(file_like_obj, toml_path) == expected
+    assert isinstance(utils.extract_file_content_from_tar_bytes(file_content, toml_path), str)
 
 
-def test_extract_toml_from_tar_invalid() -> None:
+def test_extract_file_contents_from_tar_bytes_invalid() -> None:
     """Unit tests for method."""
     toml_path = "test_archive123/pyproject.toml"
     p = pathlib.Path("tests/test_data/test_archive.tar.gz")
     with p.open("rb") as file:
         file_content = file.read()
-    file_like_obj = io.BytesIO(file_content)
-    assert utils.extract_toml_from_tar(file_like_obj, toml_path) is None
+    assert utils.extract_file_content_from_tar_bytes(file_content, toml_path) is None

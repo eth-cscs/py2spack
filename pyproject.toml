@@ -28,6 +28,7 @@ dependencies = [
     "packaging>=20", 
     "requests>=2.30", 
     "tomli>=1.2",
+    "cmake_parser>=0.9.2",
 ]
 [project.optional-dependencies]
 tests = ["pytest>=8.0", "pytest-cov>=5.0"]
@@ -128,6 +129,7 @@ known-third-party = [
   "requests",
   "tomli",
   "typing_extensions",
+  "cmake_parser",
 ]
 lines-after-imports = 2
 order-by-type = true
@@ -186,6 +188,7 @@ disallow_untyped_defs = false
 ignore_missing_imports = true
 module = [
   "spack.*",
+  "cmake_parser",
 ]
 
 [tool.pytest.ini_options]

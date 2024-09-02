@@ -4,9 +4,7 @@ from __future__ import annotations
 
 import dataclasses
 import logging
-import os
 import pathlib
-import subprocess
 import sys
 from typing import TextIO
 
@@ -14,12 +12,15 @@ from packaging import requirements, specifiers, version as pv
 from spack import spec, version as sv
 from spack.util import naming
 
-from py2spack import conversion_tools, package_providers, pyproject_parsing
+from py2spack import (
+    cmake_conversion,
+    conversion_tools,
+    package_providers,
+    pyproject_parsing,
+    spack_utils,
+)
 
 
-TEST_PKG_PREFIX = "test-"
-USE_TEST_PREFIX = False
-PRINT_PKG_TO_FILE = False
 SPACK_CHECKSUM_HASHES = ["md5", "sha1", "sha224", "sha256", "sha384", "sha512"]
 
 
@@ -172,7 +173,11 @@ class PyProject:
     dependency_errors: list[pyproject_parsing.ConfigurationError] = dataclasses.field(
         default_factory=list
     )
-    provider: package_providers.PyProjectProvider | None = None
+    provider: package_providers.PackageProvider | None = None
+
+    cmake_dependency_names: set[str] = dataclasses.field(default_factory=set)
+    cmake_dependencies: list[spec.Spec] = dataclasses.field(default_factory=list)
+    cmake_errors: list[cmake_conversion.CMakeParseError] = dataclasses.field(default_factory=list)
 
     @classmethod
     def from_toml(
@@ -321,8 +326,8 @@ class SpackPyPkg:
     _authors: list[str] = dataclasses.field(default_factory=list)
     _license: str | None = None
     _homepage: str | None = None
-    # store all dependencies of the package (with their original name, not converted
-    # to spack)
+    # store all (python package) dependencies of the package (with their original name,
+    # not converted to spack)
     original_dependencies: set[str] = dataclasses.field(default_factory=set)
     _dependencies_by_type: dict[str, list[tuple[spec.Spec, spec.Spec]]] = dataclasses.field(
         default_factory=dict
@@ -349,6 +354,7 @@ class SpackPyPkg:
     _specs_to_types: dict[tuple[spec.Spec, spec.Spec], set[str]] = dataclasses.field(
         default_factory=dict
     )
+    cmake_dependency_names: set[str] = dataclasses.field(default_factory=set)
 
     def _metadata_from_pyproject(self, pyproject: PyProject, use_test_prefix: bool = False) -> None:
         """Load and convert main metadata from given PyProject instance.
@@ -373,8 +379,26 @@ class SpackPyPkg:
         if pyproject.license:
             self._license = pyproject.license
 
+    def _cmake_dependencies_from_pyproject(self, pyproject: PyProject) -> None:
+        for dep_spec in pyproject.cmake_dependencies:
+            self.cmake_dependency_names.add(dep_spec.name)
+
+            full_spec = (dep_spec, spec.Spec())
+
+            if dep_spec not in self._specs_to_versions:
+                self._specs_to_versions[full_spec] = []
+
+            # add the current version to this dependency
+            self._specs_to_versions[full_spec].append(pyproject.version)
+
+            if dep_spec not in self._specs_to_types:
+                self._specs_to_types[full_spec] = set()
+
+            self._specs_to_types[full_spec].add("build")
+            self._specs_to_types[full_spec].add("run")
+
     def _dependencies_from_pyprojects(
-        self, pyprojects: list[PyProject], provider: package_providers.PyProjectProvider
+        self, pyprojects: list[PyProject], provider: package_providers.PackageProvider
     ) -> None:
         """Convert and combine dependencies from a list of pyprojects.
 
@@ -419,6 +443,13 @@ class SpackPyPkg:
 
                 self._requirement_from_pyproject(r, ["build", "run"], pyproject.version, provider)
 
+            # add dependencies from cmake for scikit-build-core backend
+            if pyproject.build_backend == "scikit_build_core.build":
+                self._cmake_dependencies_from_pyproject(pyproject)
+
+        self._combine_dependencies()
+
+    def _combine_dependencies(self) -> None:
         # now we have a list of versions for each requirement
         # convert versions to an equivalent condensed version list, and add this
         # list to the when spec. from there, build a complete list with all
@@ -458,7 +489,7 @@ class SpackPyPkg:
         r: requirements.Requirement,
         dependency_types: list[str],
         pyproject_version: pv.Version,
-        provider: package_providers.PyProjectProvider,
+        provider: package_providers.PackageProvider,
         from_extra: str | None = None,
     ) -> None:
         """Convert a requirement and store the package version with the result Specs."""
@@ -514,6 +545,7 @@ class SpackPyPkg:
                 if isinstance(hashdict, dict) and hashdict:
                     hash_key, hash_value = next(iter(hashdict.items()))
 
+                    # check if the used hash algo is accepted by Spack
                     if hash_key in SPACK_CHECKSUM_HASHES:
                         self._versions_with_checksum.append((spack_version, hash_key, hash_value))
                         continue
@@ -675,47 +707,64 @@ class SpackPyPkg:
 
             print(f"    with default_args(type={dep_type}):", file=outfile)
             for dep_spec, when_spec in sorted_dependencies:
-                print(
-                    "        " + _format_dependency(dep_spec, when_spec),
-                    file=outfile,
-                )
+                if dep_spec.name not in self.cmake_dependency_names:
+                    print(
+                        "        " + _format_dependency(dep_spec, when_spec),
+                        file=outfile,
+                    )
+
+            print("", file=outfile)
+
+        # Handle dependencies from CMakeLists.txt for scikit-build-core
+        # only print as comments
+        if self.cmake_dependency_names:
+            print(
+                "\n    # FIXME: The package might have non-python dependencies. The dependencies"
+                " below have been extracted from CMakeLists.txt.",
+                file=outfile,
+            )
+            print(
+                "    # Please correct and review them manually, and add the ones that are required.\n",
+                file=outfile,
+            )
+
+            # we add all non-python dependencies as build+run dependencies
+            dependencies = self._dependencies_by_type['("build", "run")']
+
+            sorted_dependencies = sorted(dependencies, key=_requirement_sort_key)
+
+            print(f"    # with default_args(type={dep_type}):", file=outfile)
+            for dep_spec, when_spec in sorted_dependencies:
+                if dep_spec.name in self.cmake_dependency_names:
+                    # `pythoninterp` is just a dependency on python
+                    if dep_spec.name == "pythoninterp":
+                        dep_spec.name = "python"
+                    print(
+                        "        # " + _format_dependency(dep_spec, when_spec),
+                        file=outfile,
+                    )
 
             print("", file=outfile)
 
         print("", file=outfile)
 
 
-def _convert_single(
+def _load_pyprojects(
     name: str,
-    pypi_provider: package_providers.PyPIProvider,
-    gh_provider: package_providers.GitHubProvider,
-    num_versions: int = 10,
-    use_test_prefix: bool = False,
-) -> SpackPyPkg | None:
-    """Convert a PyPI package to a Spack package.py."""
-    # go through providers to check if one of them has the package
-    is_gh_package = gh_provider.package_exists(name)
-    provider = gh_provider if is_gh_package else pypi_provider
-
-    if not provider.package_exists(name):
-        logging.warning("Package %s not found through any of the supplied providers", name)
-        return None
-
-    # download available versions through provider (pypi, github)
-    versions = provider.get_versions(name)
-    if isinstance(versions, package_providers.PyProjectProviderQueryError):
-        logging.warning("No valid versions found by provider %s", str(provider))
-        return None
-
+    version_list: list[pv.Version],
+    num_versions: int,
+    provider: package_providers.PackageProvider,
+) -> list[PyProject]:
+    """Load and parse pyprojects and other data for a list of versions."""
     # for each version, parse pyproject.toml
     pyprojects: list[PyProject] = []
-    for i, v in enumerate(reversed(versions)):
+    for i, v in enumerate(reversed(version_list)):
         # only look at the first `num_versions` versions
         if i == num_versions:
             break
 
         pyproject_dict = provider.get_pyproject(name, v)
-        if isinstance(pyproject_dict, package_providers.PyProjectProviderQueryError):
+        if isinstance(pyproject_dict, package_providers.PackageProviderQueryError):
             logging.warning(
                 "Unable to get pyproject.toml for %s version %s: %s",
                 name,
@@ -736,6 +785,47 @@ def _convert_single(
 
         pyprojects.append(pyproject)
 
+        # Handle scikit-build-core packages
+        # for each version, get dependencies/errors
+        # go through simplification process with cmake versions
+        if pyproject.build_backend == "scikit_build_core.build":
+            cmakelists_data = provider.get_file_content_from_sdist(
+                name, v, pathlib.Path("CMakeLists.txt")
+            )
+            if isinstance(cmakelists_data, str):
+                pyproject.cmake_dependencies = cmake_conversion.convert_cmake_dependencies(
+                    cmakelists_data
+                )
+
+            # TODO @davhofer: error handling and displaying errors in package.py
+
+    return pyprojects
+
+
+def _convert_single(
+    name: str,
+    pypi_provider: package_providers.PyPIProvider,
+    gh_provider: package_providers.GitHubProvider,
+    num_versions: int = 10,
+    use_test_prefix: bool = False,
+) -> SpackPyPkg | None:
+    """Convert a standard Python package to a Spack package.py."""
+    # go through providers to check if one of them has the package
+    is_gh_package = gh_provider.package_exists(name)
+    provider = gh_provider if is_gh_package else pypi_provider
+
+    if not provider.package_exists(name):
+        logging.warning("Package %s not found through any of the supplied providers", name)
+        return None
+
+    # download available versions through provider (pypi, github)
+    versions = provider.get_versions(name)
+    if isinstance(versions, package_providers.PackageProviderQueryError):
+        logging.warning("No valid versions found by provider %s", str(provider))
+        return None
+
+    pyprojects = _load_pyprojects(name, versions, num_versions, provider)
+
     if not pyprojects:
         logging.warning("Conversion for %s failed, no valid pyproject.tomls found", name)
         return None
@@ -750,7 +840,10 @@ def _convert_single(
     if isinstance(provider, package_providers.PyPIProvider):
         spackpkg.pypi = provider.get_pypi_package_base(name)
     elif isinstance(provider, package_providers.GitHubProvider):
-        spackpkg.url = provider.get_download_url(name)
+        url = provider.get_download_url(name)
+        if not isinstance(url, str):
+            url = ""
+        spackpkg.url = url
         spackpkg.git = provider.get_git_repo(name)
         spackpkg.pypi_name = provider.get_package_name(name)
         spackpkg.name = conversion_tools.pkg_to_spack_name(
@@ -758,69 +851,6 @@ def _convert_single(
         )
 
     return spackpkg
-
-
-def _package_exists_in_spack(name: str, spack_repo: pathlib.Path) -> bool:
-    """Checks if a specific package exists in the spack repository.
-
-    The name argument is the original non-spack name, e.g. 'black' instead of
-    'py-black'.
-    """
-    name = conversion_tools.pkg_to_spack_name(name)
-    pkg_dir = spack_repo / "packages" / name
-    return pkg_dir.is_dir() and (pkg_dir / "package.py").is_file()
-
-
-def _is_spack_repo(repo: pathlib.Path) -> bool:
-    return repo.is_dir() and (repo / "packages").is_dir() and (repo / "repo.yaml").is_file()
-
-
-def _run_spack_command(command: str) -> None | str:
-    """Run spack command and return stdout."""
-    command_list = command.split(" ")
-    if command_list[0] != "spack":
-        command_list.insert(0, "spack")
-    try:
-        return subprocess.run(command_list, capture_output=True, text=True, check=True).stdout
-    except (FileNotFoundError, subprocess.CalledProcessError):
-        return None
-
-
-def _get_spack_repo(repo_path: str | None) -> pathlib.Path:
-    # TODO @davhofer: cleanup/improve this function
-
-    # 1. if user provided a repo, use that
-    # 2. check if default repository exists using $SPACK_ROOT
-    # 3. try to use spack command to get repos
-    # 4. ask user to provide a repo
-    spack_repo = None
-
-    if repo_path is not None:
-        # get provided repository
-        spack_repo = pathlib.Path(repo_path)
-    elif "SPACK_ROOT" in os.environ:
-        # or try to find default repo
-        spack_root = pathlib.Path(os.environ["SPACK_ROOT"])
-        spack_repo = spack_root / "var" / "spack" / "repos" / "builtin"
-    else:
-        # this makes it easier to use if spack was installed from github with pip
-        result = _run_spack_command("spack repo list")
-        if result is not None:
-            try:
-                first_line = result.split("\n")[0]
-                repo_path = first_line.split(" ")[-1]
-                spack_repo = pathlib.Path(repo_path)
-            except IndexError:
-                pass
-
-    # if no repo found, prompt user
-    while spack_repo is None or not _is_spack_repo(spack_repo):
-        spack_repo_str = input(
-            "No spack repo found. Please enter full path to local spack repository:"
-        )
-        spack_repo = pathlib.Path(spack_repo_str)
-
-    return spack_repo
 
 
 def _write_package_to_repo(package: SpackPyPkg, spack_repo: pathlib.Path) -> bool:
@@ -859,14 +889,15 @@ def convert_package(  # noqa: PLR0913 [too many arguments in function definition
     """
     ignore_list: list[str] = [] if ignore is None else ignore
 
-    spack_repo = _get_spack_repo(repo_path)
+    spack_repo = spack_utils.get_spack_repo(repo_path)
     print(f"Using Spack repository at {spack_repo}")
 
-    if _package_exists_in_spack(name, spack_repo) and not use_test_prefix:
+    spack_name = conversion_tools.pkg_to_spack_name(name)
+    if spack_utils.package_exists_in_spack(spack_name) and not use_test_prefix:
         print(f"Package {name} already exists in Spack repository")
         return
 
-    # Explanation of ignore comment: PyProjectProvider protocol requires the __hash__()
+    # Explanation of ignore comment: PackageProvider protocol requires the __hash__()
     # method to be implemented, which is done by the @dataclass decorator for
     # PyPIProvider (but mypy does not detect this)
     pypi_provider = package_providers.PyPIProvider()  # type: ignore[abstract]
@@ -879,6 +910,8 @@ def convert_package(  # noqa: PLR0913 [too many arguments in function definition
     converted: list[tuple[str, int, bool]] = []
     # packages that could not be converted and written at all
     conversion_failures: list[str] = []
+    # missing non-python dependencies
+    missing_non_python_deps: set[str] = set()
 
     # allow user to cancel (Ctrl+C) the process and still show summary
     try:
@@ -912,32 +945,43 @@ def convert_package(  # noqa: PLR0913 [too many arguments in function definition
                 bool(spackpkg.dependency_parse_errors)
                 or bool(spackpkg.dependency_conversion_errors)
                 or bool(spackpkg.dependency_conflict_errors)
+                or bool(spackpkg.cmake_dependency_names)
             )
             converted.append((name, spackpkg.num_converted_versions, dep_requires_fix))
 
             for dep in spackpkg.original_dependencies:
+                spack_name = conversion_tools.pkg_to_spack_name(dep)
                 if (
                     dep != "python"
                     and dep not in queue
                     and dep not in conversion_failures
                     and dep not in ignore_list
-                    and not _package_exists_in_spack(
-                        dep, spack_repo
+                    and not spack_utils.package_exists_in_spack(
+                        spack_name
                     )  # this also covers packages already converted in this run
                 ):
                     queue.append(dep)
+
+            for dep in spackpkg.cmake_dependency_names:
+                if not spack_utils.package_exists_in_spack(dep) and dep not in ignore_list:
+                    missing_non_python_deps.add(dep)
+
     except KeyboardInterrupt:
         # display the current package in summary
         queue.insert(0, name)
 
-    _print_summary(converted, queue, conversion_failures)
+    _print_summary(converted, queue, conversion_failures, missing_non_python_deps)
 
 
-def _print_summary(
+def _print_summary(  # noqa: PLR0912 [too many branches]
     converted: list[tuple[str, int, bool]],
     queue: list[str],
     conversion_failures: list[str],
+    missing_non_python_deps: set[str],
 ) -> None:
+    if "pythoninterp" in missing_non_python_deps:
+        missing_non_python_deps.remove("pythoninterp")
+
     print(
         "\n\nNOTE: converted packages are saved in the Spack repo with the prefix 'py-' (e.g. 'py-pandas' instead of 'pandas')."
     )
@@ -952,10 +996,11 @@ def _print_summary(
     # only display this if a package has the FIX DEP flag
     if has_fix_dep:
         print(
-            " * Dependency errors that require manual review are marked as [FIX DEP.].\n * See generated `package.py` for details."
+            " *\n * Dependencies (& errors) that require manual review are\n * marked as [FIX DEP.]. See generated `package.py` for\n * details."
         )
 
     print(" *")
+    print(" *   -   -   -   -   -   -   -   -   -   -   -   -   -   -  \n *")
     if queue:
         print(
             f" * `max_conversions` limit reached but {len(queue)} unconverted\n * dependency packages left:"
@@ -967,6 +1012,7 @@ def _print_summary(
         print(" * No packages left.")
 
     print(" *")
+    print(" *   -   -   -   -   -   -   -   -   -   -   -   -   -   -  \n *")
     if conversion_failures:
         print(
             f" * The following {len(conversion_failures)} packages could not be converted\n * due to errors:"
@@ -977,9 +1023,19 @@ def _print_summary(
     else:
         print(" * No conversion failures.")
 
-    if converted:
-        print(" *\n * All generated `package.py` files should be manually\n * reviewed.")
-
     print(" *")
+    if missing_non_python_deps:
+        print(" *   -   -   -   -   -   -   -   -   -   -   -   -   -   -  \n *")
+        print(
+            f" * The following {len(missing_non_python_deps)} packages are external/non-\n * python dependencies but are missing in Spack. If \n * required, please make sure they are available"
+        )
+        for p in missing_non_python_deps:
+            print(f" *  - {p}")
+        print(" *")
+
+    if converted:
+        print(" *   -   -   -   -   -   -   -   -   -   -   -   -   -   -  \n *")
+        print(" *\n * All generated `package.py` files should be manually\n * reviewed.")
+        print(" *")
 
     print(" *\n * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *")

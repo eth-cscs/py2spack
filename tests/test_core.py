@@ -2,9 +2,6 @@
 
 from __future__ import annotations
 
-import os
-import pathlib
-
 import pytest
 from spack import spec
 
@@ -41,30 +38,8 @@ def test_convert_single(name: str):
     pypi_provider = package_providers.PyPIProvider()
     gh_provider = package_providers.GitHubProvider()
     assert isinstance(
-        core._convert_single(name, pypi_provider, gh_provider, num_versions=4), core.SpackPyPkg
+        core._convert_single(name, pypi_provider, gh_provider, num_versions=5), core.SpackPyPkg
     )
-
-
-def test_package_exists_in_spack():
-    repo = pathlib.Path.cwd() / "tests" / "test_data" / "test_repo"
-
-    assert core._package_exists_in_spack("py-test-pkg", repo)
-
-    assert not core._package_exists_in_spack("not-a-package", repo)
-
-
-def test_get_spack_repo1():
-    repo = pathlib.Path.cwd() / "tests" / "test_data" / "test_repo"
-
-    assert core._get_spack_repo(str(repo)) == repo
-
-
-def test_get_spack_repo2():
-    if "SPACK_ROOT" in os.environ:
-        spack_dir = pathlib.Path(os.environ["SPACK_ROOT"])
-        builtin_repo = spack_dir / "var" / "spack" / "repos" / "builtin"
-        if builtin_repo.is_dir():
-            assert core._get_spack_repo(None) == builtin_repo
 
 
 def write_package_to_repo():
