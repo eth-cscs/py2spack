@@ -17,7 +17,7 @@ def test_get_spack_repo2():
         spack_dir = pathlib.Path(os.environ["SPACK_ROOT"])
         builtin_repo = spack_dir / "var" / "spack" / "repos" / "builtin"
         if builtin_repo.is_dir():
-            assert spack_utils.get_spack_repo(None) == builtin_repo
+            assert spack_utils.get_spack_repo("builtin") == builtin_repo
 
 
 def test_package_exists_in_spack():

@@ -879,7 +879,7 @@ def convert_package(  # noqa: PLR0913 [too many arguments in function definition
     name: str,
     max_conversions: int = 10,
     versions_per_package: int = 10,
-    repo_path: str | None = None,
+    repo: str | None = None,
     ignore: list[str] | None = None,
     use_test_prefix: bool = False,
 ) -> None:
@@ -889,8 +889,7 @@ def convert_package(  # noqa: PLR0913 [too many arguments in function definition
     """
     ignore_list: list[str] = [] if ignore is None else ignore
 
-    spack_repo = spack_utils.get_spack_repo(repo_path)
-    print(f"Using Spack repository at {spack_repo}")
+    spack_repo = spack_utils.get_spack_repo(repo)
 
     spack_name = conversion_tools.pkg_to_spack_name(name)
     if spack_utils.package_exists_in_spack(spack_name) and not use_test_prefix:

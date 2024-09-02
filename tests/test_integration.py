@@ -26,7 +26,7 @@ def test_convert_package_writes_file(package: str) -> None:
         package,
         max_conversions=1,
         versions_per_package=5,
-        repo_path=str(repo),
+        repo=str(repo),
         use_test_prefix=True,
     )
 

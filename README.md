@@ -32,22 +32,33 @@ The package is still in development and not yet published to PyPI. It can howeve
 
 ## Usage
 
-```bash
-py2spack [-h] [--max-conversions MAX_CONVERSIONS] [--versions-per-package VERSIONS_PER_PACKAGE] [--repo-path REPO_PATH] [--ignore pkg1 pkg2 ...] [--testing] package
 ```
+usage: py2spack [-h] [--max-conversions MAX_CONVERSIONS]
+                [--versions-per-package VERSIONS_PER_PACKAGE]
+                [--repo REPO] [--ignore [IGNORE ...]] [--testing]
+                package
 
-Positional arguments:
+CLI for converting a python package and its dependencies to Spack.
 
-- `package`: Name of the package
+positional arguments:
+  package               Name of the package to be converted
 
-Options:
-
-- `-h`, `--help`: show this help message and exit
-- `--max-conversions <n>`: Maximum number of packages/dependencies that are converted. Default: `10`
-- `--versions-per-package <n>`: Versions per package to be downloaded and converted. Default: `10`
-- `--repo-path <path>`: Path to local spack repository, converted packages will be stored here. If none is provided, py2spack will look for the default repo at `$SPACK_ROOT/var/spack/repos/builtin/` Default: `None`
-- `--ignore [pkg1 pkg2 ...]`: List of packages to ignore for conversion
-- `--testing`: Optional flag for testing purposes; adds the prefix 'test-' to the package name when saving it
+options:
+  -h, --help            show this help message and exit
+  --max-conversions MAX_CONVERSIONS
+                        Maximum number of packages that are converted
+  --versions-per-package VERSIONS_PER_PACKAGE
+                        Versions per package to be downloaded and
+                        converted
+  --repo REPO           Name of or full path to local Spack
+                        repository where packages should be saved
+  --ignore [IGNORE ...]
+                        List of packages to ignore. Must be specified
+                        last (after <package> argument) for the
+                        command to work
+  --testing             For testing purposes; adds the prefix 'test-'
+                        when saving packages
+```
 
 ### Conversion from PyPI
 

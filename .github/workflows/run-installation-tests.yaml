@@ -27,7 +27,7 @@ jobs:
           rm -rd $SPACK_PKGS/py-tqdm || true
 
       - name: Run py2spack conversion
-        run: py2spack --versions-per-package 5 --max-conversions 2 tqdm
+        run: py2spack --versions-per-package 5 --max-conversions 2 --repo "builtin" tqdm
 
       - name: Install py-tqdm with Spack
         run: spack install py-tqdm
@@ -46,7 +46,7 @@ jobs:
           rm -rd $SPACK_PKGS/py-colorama || true
 
       - name: Run py2spack conversion
-        run: py2spack --versions-per-package 5 --max-conversions 2 pygments
+        run: py2spack --versions-per-package 5 --max-conversions 2 --repo "builtin" pygments
 
       - name: Install py-pygments with Spack
         run: spack install py-pygments
@@ -65,7 +65,7 @@ jobs:
           rm -rd $SPACK_PKGS/py-jinja2 || true
 
       - name: Run py2spack conversion
-        run: py2spack --versions-per-package 5 --max-conversions 2 flask
+        run: py2spack --versions-per-package 5 --max-conversions 2 --repo "builtin" flask
 
       - name: Install py-flask with Spack
         run: spack install py-flask
