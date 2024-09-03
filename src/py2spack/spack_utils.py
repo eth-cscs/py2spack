@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 import pathlib
 import re
 import subprocess
@@ -40,7 +39,6 @@ def run_spack_command(command: str) -> None | str:
     return subprocess.run(command, capture_output=True, text=True, shell=True, check=False).stdout
 
 
-
 def get_spack_repo(spack_repository: str | None) -> pathlib.Path:
     """Find a valid Spack repository for the user."""
     # TODO @davhofer: cleanup/improve this function
@@ -55,8 +53,8 @@ def get_spack_repo(spack_repository: str | None) -> pathlib.Path:
     result = run_spack_command("spack repo list")
     if result:
         for line in result.split("\n"):
-            if not line: 
-                continue 
+            if not line:
+                continue
 
             words = line.split(" ")
 
@@ -76,8 +74,6 @@ def get_spack_repo(spack_repository: str | None) -> pathlib.Path:
             spack_repository = repo_dict[spack_repository]
 
         repo_path = pathlib.Path(spack_repository)
-
-
 
     # if no repo found, prompt user
     while repo_path is None or not is_spack_repo(repo_path):
@@ -99,7 +95,7 @@ def get_spack_repo(spack_repository: str | None) -> pathlib.Path:
 
         if spack_repo_str in repo_dict:
             spack_repo_str = repo_dict[spack_repo_str]
-        
+
         repo_path = pathlib.Path(spack_repo_str)
 
     print(f"Using Spack repository at {repo_path}\n")

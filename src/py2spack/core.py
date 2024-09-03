@@ -18,6 +18,7 @@ from py2spack import (
     package_providers,
     pyproject_parsing,
     spack_utils,
+    utils,
 )
 
 
@@ -177,7 +178,6 @@ class PyProject:
 
     cmake_dependency_names: set[str] = dataclasses.field(default_factory=set)
     cmake_dependencies: list[spec.Spec] = dataclasses.field(default_factory=list)
-    cmake_errors: list[cmake_conversion.CMakeParseError] = dataclasses.field(default_factory=list)
 
     @classmethod
     def from_toml(
@@ -749,6 +749,36 @@ class SpackPyPkg:
         print("", file=outfile)
 
 
+def _load_cmakelists_for_pyproject(
+    pyproject: PyProject, provider: package_providers.PackageProvider
+) -> None:
+    subdirectory_queue = [pathlib.Path()]
+    visited_subdirectories = []
+    while subdirectory_queue:
+        current_subdir = subdirectory_queue.pop(0)
+        file_path = current_subdir / "CMakeLists.txt"
+
+        visited_subdirectories.append(current_subdir)
+
+        cmakelists_data = provider.get_file_content_from_sdist(
+            pyproject.name, pyproject.version, file_path
+        )
+
+        if isinstance(cmakelists_data, str):
+            dependencies, new_subdirs = cmake_conversion.convert_cmake_dependencies(cmakelists_data)
+            pyproject.cmake_dependencies += dependencies
+
+            for relative_subdir_path in new_subdirs:
+                subdir_path = current_subdir / relative_subdir_path
+                subdir_path = utils.normalize_path(subdir_path)
+
+                if (
+                    subdir_path not in subdirectory_queue
+                    and subdir_path not in visited_subdirectories
+                ):
+                    subdirectory_queue.append(subdir_path)
+
+
 def _load_pyprojects(
     name: str,
     version_list: list[pv.Version],
@@ -785,19 +815,18 @@ def _load_pyprojects(
 
         pyprojects.append(pyproject)
 
-        # Handle scikit-build-core packages
-        # for each version, get dependencies/errors
-        # go through simplification process with cmake versions
-        if pyproject.build_backend == "scikit_build_core.build":
-            cmakelists_data = provider.get_file_content_from_sdist(
-                name, v, pathlib.Path("CMakeLists.txt")
-            )
-            if isinstance(cmakelists_data, str):
-                pyproject.cmake_dependencies = cmake_conversion.convert_cmake_dependencies(
-                    cmakelists_data
-                )
+    # Handle scikit-build-core packages
+    # for each version, get dependencies/errors
+    # go through simplification process with cmake versions
 
-            # TODO @davhofer: error handling and displaying errors in package.py
+    # CHANGED: for now only do it for the most recent version
+
+    # TODO: for each dependency, add subdirectory where it was found in here, and inside of function, already add line number to it
+    # TODO: then change the way that cmake_dependencies are processed later
+
+    # TODO: do we want to parse for EVERY package version? or only for the last one? we don't keep track of versions anyway...
+    if pyprojects and pyprojects[0].build_backend == "scikit_build_core.build":
+        _load_cmakelists_for_pyproject(pyprojects[0], provider)
 
     return pyprojects
 
