@@ -891,16 +891,18 @@ def convert_package(  # noqa: PLR0913 [too many arguments in function definition
 
     spack_repo = spack_utils.get_spack_repo(repo)
 
-    spack_name = conversion_tools.pkg_to_spack_name(name)
-    if spack_utils.package_exists_in_spack(spack_name) and not use_test_prefix:
-        print(f"Package {name} already exists in Spack repository")
-        return
-
     # Explanation of ignore comment: PackageProvider protocol requires the __hash__()
     # method to be implemented, which is done by the @dataclass decorator for
     # PyPIProvider (but mypy does not detect this)
     pypi_provider = package_providers.PyPIProvider()  # type: ignore[abstract]
     gh_provider = package_providers.GitHubProvider()  # type: ignore[abstract]
+
+    pkg_name = gh_provider.get_package_name(name) if gh_provider.package_exists(name) else name
+
+    spack_name = conversion_tools.pkg_to_spack_name(pkg_name)
+    if spack_utils.package_exists_in_spack(spack_name) and not use_test_prefix:
+        print(f"Package {spack_name} already exists in Spack repository")
+        return
 
     # queue of packages to be converted
     queue: list[str] = [name]
