@@ -151,6 +151,8 @@ class GitHubProvider(PackageProvider):
 
         github_url = "https://github.com/"
         if name.startswith(github_url):
+            if name.endswith("/"):
+                name = name[:-1]
             # remove base url
             repo_specifier = name[len(github_url) :]
             # if .git suffix exists, remove it
