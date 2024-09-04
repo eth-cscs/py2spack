@@ -10,12 +10,12 @@ import pathlib
 project = "py2spack"
 author = "David Hofer"
 
-version = ""
 try:
+    version = ""
     with open(pathlib.Path(__file__).parent / ".." / "src" / "py2spack" / "__init__.py") as f:
         for line in f:
             if line.startswith("__version__"):
-                exec(line, ctx:={})
+                exec(line, ctx := {})
                 version = ctx["__version__"]
                 break
 except:
@@ -122,7 +122,8 @@ myst_substitutions = {
 }
 
 # -- HTML output -------------------------------------------------
-html_theme = "sphinx_book_theme"
+# themes: "sphinx_rtd_theme", "sphinx_book_theme", "furo"
+html_theme = "furo"
 html_logo = "_static/images/spack-logo-white.svg"
 html_favicon = "_static/images/favicon.ico"
 html_title = ""
