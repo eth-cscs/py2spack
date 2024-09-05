@@ -103,17 +103,23 @@ def _convert_find_package(command: ast.Command) -> spec.Spec | None:
     version = None
     if len(command.args) > 1:
         optional_version_token = command.args[1]
-        version = _parse_single_version(optional_version_token.value)
+        version = _parse_cmake_version(optional_version_token.value)
 
     exact_version_modifier = ""
     for arg in command.args:
         if arg.value == "EXACT":
             exact_version_modifier = "="
 
+    version_string = ""
+    if isinstance(version, CMakeVersion):
+        version_string = f"@{exact_version_modifier}{version.format()}"
+    elif isinstance(version, tuple):
+        version_string = f"@{version[0].format()}:{version[1].format()}"
+
     spec_string = (
         package_spack
         if version is None
-        else f"{package_spack} @{exact_version_modifier}{version.format()}"
+        else f"{package_spack} {version_string}"
     )
 
     return spec.Spec(spec_string)
@@ -129,10 +135,12 @@ def _convert_add_subdirectory(command: ast.Command) -> str | None:
     return None
 
 
-def convert_cmake_dependencies(cmakelists_data: str) -> tuple[list[spec.Spec], list[str]]:
+def convert_cmake_dependencies(cmakelists_data: str) -> tuple[list[tuple[spec.Spec, int]], list[str]]:
     """Convert the contenets of a CMakeLists.txt to Spack Specs.
 
-    Returns list of dependencies, and list of subdirectories to continue search.
+    Returns list of dependencies, and list of subdirectories to continue search. Each
+    dependency consists of the dependency Spec as well as the line number of the original 
+    statement.
     """
     relevant_identifiers = [
         "cmake_minimum_required",
@@ -156,7 +164,7 @@ def convert_cmake_dependencies(cmakelists_data: str) -> tuple[list[spec.Spec], l
             converted_dependency = _convert_find_package(node)
 
         if isinstance(converted_dependency, spec.Spec):
-            dependencies.append(converted_dependency)
+            dependencies.append((converted_dependency, node.line))
 
         if node.identifier == "add_subdirectory":
             subdirectory = _convert_add_subdirectory(node)

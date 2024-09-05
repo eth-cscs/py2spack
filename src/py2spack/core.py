@@ -177,7 +177,9 @@ class PyProject:
     provider: package_providers.PackageProvider | None = None
 
     cmake_dependency_names: set[str] = dataclasses.field(default_factory=set)
-    cmake_dependencies: list[spec.Spec] = dataclasses.field(default_factory=list)
+    cmake_dependencies_with_sources: list[tuple[spec.Spec, tuple[pathlib.Path, int]]] = (
+        dataclasses.field(default_factory=list)
+    )
 
     @classmethod
     def from_toml(
@@ -355,6 +357,9 @@ class SpackPyPkg:
         default_factory=dict
     )
     cmake_dependency_names: set[str] = dataclasses.field(default_factory=set)
+    _cmake_dependencies_with_sources: list[tuple[spec.Spec, tuple[pathlib.Path, int]]] = (
+        dataclasses.field(default_factory=list)
+    )
 
     def _metadata_from_pyproject(self, pyproject: PyProject, use_test_prefix: bool = False) -> None:
         """Load and convert main metadata from given PyProject instance.
@@ -380,22 +385,11 @@ class SpackPyPkg:
             self._license = pyproject.license
 
     def _cmake_dependencies_from_pyproject(self, pyproject: PyProject) -> None:
-        for dep_spec in pyproject.cmake_dependencies:
-            self.cmake_dependency_names.add(dep_spec.name)
+        self._cmake_dependencies_with_sources += pyproject.cmake_dependencies_with_sources
 
-            full_spec = (dep_spec, spec.Spec())
-
-            if dep_spec not in self._specs_to_versions:
-                self._specs_to_versions[full_spec] = []
-
-            # add the current version to this dependency
-            self._specs_to_versions[full_spec].append(pyproject.version)
-
-            if dep_spec not in self._specs_to_types:
-                self._specs_to_types[full_spec] = set()
-
-            self._specs_to_types[full_spec].add("build")
-            self._specs_to_types[full_spec].add("run")
+        self.cmake_dependency_names.update(
+            [dep_spec.name for dep_spec, source_info in pyproject.cmake_dependencies_with_sources]
+        )
 
     def _dependencies_from_pyprojects(
         self, pyprojects: list[PyProject], provider: package_providers.PackageProvider
@@ -707,42 +701,40 @@ class SpackPyPkg:
 
             print(f"    with default_args(type={dep_type}):", file=outfile)
             for dep_spec, when_spec in sorted_dependencies:
-                if dep_spec.name not in self.cmake_dependency_names:
-                    print(
-                        "        " + _format_dependency(dep_spec, when_spec),
-                        file=outfile,
-                    )
+                print(
+                    "        " + _format_dependency(dep_spec, when_spec),
+                    file=outfile,
+                )
 
             print("", file=outfile)
 
         # Handle dependencies from CMakeLists.txt for scikit-build-core
         # only print as comments
-        if self.cmake_dependency_names:
+        if self._cmake_dependencies_with_sources:
             print(
                 "\n    # FIXME: The package might have non-python dependencies. The dependencies"
-                " below have been extracted from CMakeLists.txt.",
+                " below have been extracted from included CMakeLists.txt files.",
                 file=outfile,
             )
             print(
-                "    # Please correct and review them manually, and add the ones that are required.\n",
+                "    # Please correct and review them manually, and add the ones that are required.",
+                file=outfile,
+            )
+            print(
+                "    # NOTE: These dependencies have only been extracted from the MOST RECENT package"
+                " version included in this Spack recipe. Extend these dependencies manually to "
+                "explicitly support older versions.\n",
                 file=outfile,
             )
 
             # we add all non-python dependencies as build+run dependencies
-            dependencies = self._dependencies_by_type['("build", "run")']
-
-            sorted_dependencies = sorted(dependencies, key=_requirement_sort_key)
-
-            print(f"    # with default_args(type={dep_type}):", file=outfile)
-            for dep_spec, when_spec in sorted_dependencies:
-                if dep_spec.name in self.cmake_dependency_names:
-                    # `pythoninterp` is just a dependency on python
-                    if dep_spec.name == "pythoninterp":
-                        dep_spec.name = "python"
-                    print(
-                        "        # " + _format_dependency(dep_spec, when_spec),
-                        file=outfile,
-                    )
+            print('    # with default_args(type=("build", "run")):', file=outfile)
+            for dep_spec, source_info in self._cmake_dependencies_with_sources:
+                print(f"        # {source_info[0]}, line {source_info[1]}", file=outfile)
+                print(
+                    "        # " + _format_dependency(dep_spec, spec.Spec()),
+                    file=outfile,
+                )
 
             print("", file=outfile)
 
@@ -766,7 +758,10 @@ def _load_cmakelists_for_pyproject(
 
         if isinstance(cmakelists_data, str):
             dependencies, new_subdirs = cmake_conversion.convert_cmake_dependencies(cmakelists_data)
-            pyproject.cmake_dependencies += dependencies
+            dependencies_with_source = [
+                (dep, (file_path, line_nr)) for dep, line_nr in dependencies
+            ]
+            pyproject.cmake_dependencies_with_sources += dependencies_with_source
 
             for relative_subdir_path in new_subdirs:
                 subdir_path = current_subdir / relative_subdir_path
