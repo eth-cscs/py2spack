@@ -2,7 +2,7 @@
 
 Github repository for the CSCS internship project with the goal of developing a Python tool for automatically generating Spark package recipes based on existing Python packages, with the ability to handle direct and transitive dependencies and flexible versions.
 
-For more information, see the [Wiki](https://github.com/davhofer/py2spack/wiki).
+For more information, see the the [#Documentation].
 
 ## Installation
 
@@ -79,6 +79,21 @@ py2spack user/package-name
 ```
 
 > NOTE: dependencies will always be resolved through PyPI, even when converting a package from GitHub
+
+## Documentation
+
+To check out the detailed documentation (API docs, usage, implementation, package conversion, etc.), you need to clone the repository and build the docs:
+
+```bash
+pip install .[docs]
+cd docs; make html
+```
+
+You can then browse it locally, e.g.
+
+```bash
+firefox _build/html/index.html
+```
 
 ## Running tests
 
