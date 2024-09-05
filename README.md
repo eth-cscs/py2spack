@@ -80,6 +80,21 @@ py2spack user/package-name
 
 > NOTE: dependencies will always be resolved through PyPI, even when converting a package from GitHub
 
+## Documentation
+
+To check out the detailed documentation (API docs, usage, implementation, package conversion, etc.), you need to clone the repository and build the docs:
+
+```bash
+pip install .[docs]
+cd docs; make html
+```
+
+You can then browse it locally, e.g.
+
+```bash
+firefox _build/html/index.html
+```
+
 ## Running tests
 
 After installing the package, the tests can be run from the project root directory as follows:
