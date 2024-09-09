@@ -116,30 +116,29 @@ def _convert_find_package(command: ast.Command) -> spec.Spec | None:
     elif isinstance(version, tuple):
         version_string = f"@{version[0].format()}:{version[1].format()}"
 
-    spec_string = (
-        package_spack
-        if version is None
-        else f"{package_spack} {version_string}"
-    )
+    spec_string = package_spack if version is None else f"{package_spack} {version_string}"
 
     return spec.Spec(spec_string)
 
 
 def _convert_add_subdirectory(command: ast.Command) -> str | None:
-    assert command.args
-
-    subdirectory: str = command.args[0].value
-    if subdirectory:
-        return subdirectory
+    try:
+        subdirectory: str = command.args[0].value
+        if subdirectory:
+            return subdirectory
+    except (AttributeError, IndexError):
+        return None
 
     return None
 
 
-def convert_cmake_dependencies(cmakelists_data: str) -> tuple[list[tuple[spec.Spec, int]], list[str]]:
+def convert_cmake_dependencies(
+    cmakelists_data: str,
+) -> tuple[list[tuple[spec.Spec, int]], list[str]]:
     """Convert the contenets of a CMakeLists.txt to Spack Specs.
 
     Returns list of dependencies, and list of subdirectories to continue search. Each
-    dependency consists of the dependency Spec as well as the line number of the original 
+    dependency consists of the dependency Spec as well as the line number of the original
     statement.
     """
     relevant_identifiers = [
