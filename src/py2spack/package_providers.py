@@ -146,6 +146,7 @@ class GitHubProvider(PackageProvider):
         'name' must be either a url to a repository, or of the form "user/repository".
         Returns a string of the form "user/repository" or None.
         """
+
         if len(name.split("/")) == 2:  # noqa: PLR2004 [magic value]
             return name
 
@@ -171,6 +172,7 @@ class GitHubProvider(PackageProvider):
 
         Can specify a specific version, by default returns url for most recent one.
         """
+
         versions_with_urls = self._get_versions_with_urls(name)
         if isinstance(versions_with_urls, PackageProviderQueryError):
             return versions_with_urls

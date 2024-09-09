@@ -18,6 +18,7 @@ from py2spack import (
     package_providers,
     pyproject_parsing,
     spack_utils,
+    utils,
 )
 
 
@@ -176,8 +177,11 @@ class PyProject:
     provider: package_providers.PackageProvider | None = None
 
     cmake_dependency_names: set[str] = dataclasses.field(default_factory=set)
-    cmake_dependencies: list[spec.Spec] = dataclasses.field(default_factory=list)
-    cmake_errors: list[cmake_conversion.CMakeParseError] = dataclasses.field(default_factory=list)
+    # dict mapping from str (name) to spec + source
+    # dependency name => different dependency specs => different sources
+    cmake_dependencies_with_sources: dict[str, list[tuple[spec.Spec, tuple[pathlib.Path, int]]]] = (
+        dataclasses.field(default_factory=dict)
+    )
 
     @classmethod
     def from_toml(
@@ -355,6 +359,9 @@ class SpackPyPkg:
         default_factory=dict
     )
     cmake_dependency_names: set[str] = dataclasses.field(default_factory=set)
+    _cmake_dependencies_with_sources: dict[
+        str, list[tuple[spec.Spec, tuple[pathlib.Path, int]]]
+    ] = dataclasses.field(default_factory=dict)
 
     def _metadata_from_pyproject(self, pyproject: PyProject, use_test_prefix: bool = False) -> None:
         """Load and convert main metadata from given PyProject instance.
@@ -380,22 +387,12 @@ class SpackPyPkg:
             self._license = pyproject.license
 
     def _cmake_dependencies_from_pyproject(self, pyproject: PyProject) -> None:
-        for dep_spec in pyproject.cmake_dependencies:
-            self.cmake_dependency_names.add(dep_spec.name)
+        for name, dependency_list in pyproject.cmake_dependencies_with_sources.items():
+            if name not in self._cmake_dependencies_with_sources:
+                self._cmake_dependencies_with_sources[name] = []
+            self._cmake_dependencies_with_sources[name] += dependency_list
 
-            full_spec = (dep_spec, spec.Spec())
-
-            if dep_spec not in self._specs_to_versions:
-                self._specs_to_versions[full_spec] = []
-
-            # add the current version to this dependency
-            self._specs_to_versions[full_spec].append(pyproject.version)
-
-            if dep_spec not in self._specs_to_types:
-                self._specs_to_types[full_spec] = set()
-
-            self._specs_to_types[full_spec].add("build")
-            self._specs_to_types[full_spec].add("run")
+        self.cmake_dependency_names.update(list(pyproject.cmake_dependencies_with_sources.keys()))
 
     def _dependencies_from_pyprojects(
         self, pyprojects: list[PyProject], provider: package_providers.PackageProvider
@@ -707,46 +704,93 @@ class SpackPyPkg:
 
             print(f"    with default_args(type={dep_type}):", file=outfile)
             for dep_spec, when_spec in sorted_dependencies:
-                if dep_spec.name not in self.cmake_dependency_names:
-                    print(
-                        "        " + _format_dependency(dep_spec, when_spec),
-                        file=outfile,
-                    )
+                print(
+                    "        " + _format_dependency(dep_spec, when_spec),
+                    file=outfile,
+                )
 
             print("", file=outfile)
 
         # Handle dependencies from CMakeLists.txt for scikit-build-core
         # only print as comments
-        if self.cmake_dependency_names:
+        if self._cmake_dependencies_with_sources:
             print(
                 "\n    # FIXME: The package might have non-python dependencies. The dependencies"
-                " below have been extracted from CMakeLists.txt.",
+                " below have been extracted from included CMakeLists.txt files.",
                 file=outfile,
             )
             print(
-                "    # Please correct and review them manually, and add the ones that are required.\n",
+                "    # Please correct and review them manually, and add the ones that are required.",
+                file=outfile,
+            )
+            print(
+                "    # NOTE: These dependencies have only been extracted from the MOST RECENT package"
+                " version included in this Spack recipe.\n    # Extend these dependencies manually to "
+                "explicitly support older versions.\n",
                 file=outfile,
             )
 
-            # we add all non-python dependencies as build+run dependencies
-            dependencies = self._dependencies_by_type['("build", "run")']
+            for dep_name, dep_list in self._cmake_dependencies_with_sources.items():
+                # get all unique dependency specs for this dependency
+                # e.g. boost, boost@4.2, boost@4.3:
+                unique_specs = {dep_spec for dep_spec, _ in dep_list}
 
-            sorted_dependencies = sorted(dependencies, key=_requirement_sort_key)
+                # if all specs are identical, display this spec on top
+                # otherwise, display a spec with just the dependency name on top and the
+                # detailed specs next to the sources
+                main_spec = (
+                    next(iter(unique_specs)) if len(unique_specs) == 1 else spec.Spec(dep_name)
+                )
+                print(
+                    "        # " + _format_dependency(main_spec, spec.Spec()),
+                    file=outfile,
+                )
+                for current_spec, source_info in dep_list:
+                    current_spec_str = "" if current_spec == main_spec else f"({current_spec})"
 
-            print(f"    # with default_args(type={dep_type}):", file=outfile)
-            for dep_spec, when_spec in sorted_dependencies:
-                if dep_spec.name in self.cmake_dependency_names:
-                    # `pythoninterp` is just a dependency on python
-                    if dep_spec.name == "pythoninterp":
-                        dep_spec.name = "python"
                     print(
-                        "        # " + _format_dependency(dep_spec, when_spec),
+                        f"        #   {source_info[0]}, line {source_info[1]} {current_spec_str}",
                         file=outfile,
                     )
-
-            print("", file=outfile)
+                print("", file=outfile)
 
         print("", file=outfile)
+
+
+def _load_cmakelists_for_pyproject(
+    pyproject: PyProject, provider: package_providers.PackageProvider
+) -> None:
+    subdirectory_queue = [pathlib.Path()]
+    visited_subdirectories = []
+    while subdirectory_queue:
+        current_subdir = subdirectory_queue.pop(0)
+        file_path = current_subdir / "CMakeLists.txt"
+
+        visited_subdirectories.append(current_subdir)
+
+        cmakelists_data = provider.get_file_content_from_sdist(
+            pyproject.name, pyproject.version, file_path
+        )
+
+        if isinstance(cmakelists_data, str):
+            dependencies, new_subdirs = cmake_conversion.convert_cmake_dependencies(cmakelists_data)
+
+            for dep, line_nr in dependencies:
+                if dep.name not in pyproject.cmake_dependencies_with_sources:
+                    pyproject.cmake_dependencies_with_sources[dep.name] = []
+                pyproject.cmake_dependencies_with_sources[dep.name].append(
+                    (dep, (file_path, line_nr))
+                )
+
+            for relative_subdir_path in new_subdirs:
+                subdir_path = current_subdir / relative_subdir_path
+                subdir_path = utils.normalize_path(subdir_path)
+
+                if (
+                    subdir_path not in subdirectory_queue
+                    and subdir_path not in visited_subdirectories
+                ):
+                    subdirectory_queue.append(subdir_path)
 
 
 def _load_pyprojects(
@@ -785,19 +829,18 @@ def _load_pyprojects(
 
         pyprojects.append(pyproject)
 
-        # Handle scikit-build-core packages
-        # for each version, get dependencies/errors
-        # go through simplification process with cmake versions
-        if pyproject.build_backend == "scikit_build_core.build":
-            cmakelists_data = provider.get_file_content_from_sdist(
-                name, v, pathlib.Path("CMakeLists.txt")
-            )
-            if isinstance(cmakelists_data, str):
-                pyproject.cmake_dependencies = cmake_conversion.convert_cmake_dependencies(
-                    cmakelists_data
-                )
+    # Handle scikit-build-core packages
+    # for each version, get dependencies/errors
+    # go through simplification process with cmake versions
 
-            # TODO @davhofer: error handling and displaying errors in package.py
+    # CHANGED: for now only do it for the most recent version
+
+    # TODO: for each dependency, add subdirectory where it was found in here, and inside of function, already add line number to it
+    # TODO: then change the way that cmake_dependencies are processed later
+
+    # TODO: do we want to parse for EVERY package version? or only for the last one? we don't keep track of versions anyway...
+    if pyprojects and pyprojects[0].build_backend == "scikit_build_core.build":
+        _load_cmakelists_for_pyproject(pyprojects[0], provider)
 
     return pyprojects
 
@@ -896,6 +939,11 @@ def convert_package(  # noqa: PLR0913 [too many arguments in function definition
     # PyPIProvider (but mypy does not detect this)
     pypi_provider = package_providers.PyPIProvider()  # type: ignore[abstract]
     gh_provider = package_providers.GitHubProvider()  # type: ignore[abstract]
+
+    # Convert https://github.com/user/package-name to user/package-name
+    gh_repo_name = gh_provider.parse_repo_name(name) if gh_provider.package_exists(name) else name
+    if gh_repo_name is not None:
+        name = gh_repo_name
 
     pkg_name = gh_provider.get_package_name(name) if gh_provider.package_exists(name) else name
 

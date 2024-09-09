@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import functools
 import io
+import pathlib
 import tarfile
 
 import requests
@@ -27,7 +28,7 @@ def download_bytes(url: str) -> bytes | None:
 
 
 def extract_file_content_from_tar_bytes(
-    file_bytes: bytes,
+    tar_bytes: bytes,
     file_path: str,
 ) -> str | None:
     """Extract and read file from tar archive.
@@ -38,9 +39,9 @@ def extract_file_content_from_tar_bytes(
     as a dictionary.
     """
     # works for .gz, .bz2, .xz, ...
-    file_bytes_object = io.BytesIO(file_bytes)
+    tar_bytes_object = io.BytesIO(tar_bytes)
     try:
-        with tarfile.open(fileobj=file_bytes_object, mode="r:*") as tar:
+        with tarfile.open(fileobj=tar_bytes_object, mode="r:*") as tar:
             names = tar.getnames()
 
             # expect the file path to start either at the archive root directory,
@@ -48,6 +49,8 @@ def extract_file_content_from_tar_bytes(
             top_level_files = list({x.split("/")[0] for x in names})
             if file_path not in names and len(top_level_files) == 1:
                 file_path = f"{top_level_files[0]}/{file_path}"
+                if file_path not in names:
+                    return None
 
             member = tar.getmember(file_path)
             f = tar.extractfile(member)
@@ -56,6 +59,28 @@ def extract_file_content_from_tar_bytes(
                 return f.read().decode("utf-8")
 
     except (OSError, tarfile.TarError, UnicodeDecodeError, KeyError) as e:
-        print(e)
+        print(f"Error when extracting file {file_path} from tar: {e}")
 
     return None
+
+
+def normalize_path(path: pathlib.Path) -> pathlib.Path:
+    """Remove relative path modifiers like .. from paths to make them comparable."""
+    path_arr = str(path).split("/")
+
+    start_idx = 0
+    while ".." in path_arr:
+        try:
+            i = path_arr.index("..", start_idx)
+        except ValueError:
+            break
+
+        if i == start_idx:
+            start_idx += 1
+            continue
+
+        path_arr.pop(i)
+        path_arr.pop(i - 1)
+
+    reconstructed_path = "/".join(path_arr)
+    return pathlib.Path(reconstructed_path)

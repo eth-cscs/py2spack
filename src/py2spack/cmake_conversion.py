@@ -12,13 +12,6 @@ from spack.util import naming
 CMAKE_VERSION_NUM_COMPONENTS = 4
 
 
-@dataclasses.dataclass(frozen=True)
-class CMakeParseError:
-    """Error while parsing and handling data from CMakeLists.txt."""
-
-    msg: str
-
-
 @dataclasses.dataclass
 class CMakeVersion:
     """Represents versions specified in cmake."""
@@ -98,9 +91,11 @@ def _convert_cmake_minimum_required(
     return result
 
 
-def _convert_find_package(command: ast.Command) -> spec.Spec | CMakeParseError:
+def _convert_find_package(command: ast.Command) -> spec.Spec | None:
     """Convert a cmake 'find_package' command to a Spack spec."""
     # TODO @davhofer: verification/error handling?
+    assert command.args
+
     package = command.args[0].value
     # canonicalize the name for spack
     package_spack = naming.simplify_name(package)
@@ -108,31 +103,48 @@ def _convert_find_package(command: ast.Command) -> spec.Spec | CMakeParseError:
     version = None
     if len(command.args) > 1:
         optional_version_token = command.args[1]
-        version = _parse_single_version(optional_version_token.value)
+        version = _parse_cmake_version(optional_version_token.value)
 
     exact_version_modifier = ""
     for arg in command.args:
         if arg.value == "EXACT":
             exact_version_modifier = "="
 
-    spec_string = (
-        package_spack
-        if version is None
-        else f"{package_spack} @{exact_version_modifier}{version.format()}"
-    )
+    version_string = ""
+    if isinstance(version, CMakeVersion):
+        version_string = f"@{exact_version_modifier}{version.format()}"
+    elif isinstance(version, tuple):
+        version_string = f"@{version[0].format()}:{version[1].format()}"
+
+    spec_string = package_spack if version is None else f"{package_spack} {version_string}"
 
     return spec.Spec(spec_string)
 
 
-def convert_cmake_dependencies(cmakelists_data: str) -> list[spec.Spec]:
-    """Convert the contenets of a CMakeLists.txt to Spack Specs."""
+def _convert_add_subdirectory(command: ast.Command) -> str | None:
+    try:
+        subdirectory: str = command.args[0].value
+        if subdirectory:
+            return subdirectory
+    except (AttributeError, IndexError):
+        return None
+
+    return None
+
+
+def convert_cmake_dependencies(
+    cmakelists_data: str,
+) -> tuple[list[tuple[spec.Spec, int]], list[str]]:
+    """Convert the contenets of a CMakeLists.txt to Spack Specs.
+
+    Returns list of dependencies, and list of subdirectories to continue search. Each
+    dependency consists of the dependency Spec as well as the line number of the original
+    statement.
+    """
     relevant_identifiers = [
         "cmake_minimum_required",
         "find_package",
-        "if",
-        "else",
-        "endif",
-        "project",
+        "add_subdirectory",
     ]
     nodes = [
         x
@@ -140,16 +152,22 @@ def convert_cmake_dependencies(cmakelists_data: str) -> list[spec.Spec]:
         if x.identifier in relevant_identifiers
     ]
 
-    result = []
+    dependencies = []
+    subdirectories = []
 
     for node in nodes:
-        converted_node = None
+        converted_dependency = None
         if node.identifier == "cmake_minimum_required":
-            converted_node = _convert_cmake_minimum_required(node)
+            converted_dependency = _convert_cmake_minimum_required(node)
         elif node.identifier == "find_package":
-            converted_node = _convert_find_package(node)
+            converted_dependency = _convert_find_package(node)
 
-        if isinstance(converted_node, spec.Spec):
-            result.append(converted_node)
+        if isinstance(converted_dependency, spec.Spec):
+            dependencies.append((converted_dependency, node.line))
 
-    return result
+        if node.identifier == "add_subdirectory":
+            subdirectory = _convert_add_subdirectory(node)
+            if isinstance(subdirectory, str):
+                subdirectories.append(subdirectory)
+
+    return dependencies, subdirectories

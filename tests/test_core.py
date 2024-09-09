@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 from spack import spec
+import pathlib
 
 from py2spack import core, package_providers
 
@@ -146,6 +147,42 @@ def test_find_dependency_satisfiability_conflicts(
 def test_format_dependency(dep_spec: spec.Spec, when_spec: spec.Spec, expected: str) -> None:
     """Unit tests for method."""
     assert core._format_dependency(dep_spec, when_spec) == expected
+
+
+def test_spackpypkg_cmake_dependencies_from_pyproject():
+    pyproject = core.PyProject()
+    pyproject.cmake_dependencies_with_sources["dep1"] = [
+        (spec.Spec("dep1"), (pathlib.Path("path/to/file"), 10)),
+        (spec.Spec("dep1@3.4:"), (pathlib.Path("path/to/file"), 15)),
+    ]
+
+    pyproject.cmake_dependencies_with_sources["dep2"] = [
+        (spec.Spec("dep2"), (pathlib.Path("path/to/file"), 2)),
+        (spec.Spec("dep2@1:2"), (pathlib.Path("path/to/other_file"), 10)),
+    ]
+
+    spackpkg = core.SpackPyPkg()
+
+    spackpkg._cmake_dependencies_from_pyproject(pyproject)
+
+    assert spackpkg.cmake_dependency_names == {"dep1", "dep2"}
+
+    assert list(spackpkg._cmake_dependencies_with_sources.items()) == [
+        (
+            "dep1",
+            [
+                (spec.Spec("dep1"), (pathlib.Path("path/to/file"), 10)),
+                (spec.Spec("dep1@3.4:"), (pathlib.Path("path/to/file"), 15)),
+            ],
+        ),
+        (
+            "dep2",
+            [
+                (spec.Spec("dep2"), (pathlib.Path("path/to/file"), 2)),
+                (spec.Spec("dep2@1:2"), (pathlib.Path("path/to/other_file"), 10)),
+            ],
+        ),
+    ]
 
 
 # TODO @davhofer: functions to test:
