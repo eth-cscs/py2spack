@@ -177,8 +177,10 @@ class PyProject:
     provider: package_providers.PackageProvider | None = None
 
     cmake_dependency_names: set[str] = dataclasses.field(default_factory=set)
-    cmake_dependencies_with_sources: list[tuple[spec.Spec, tuple[pathlib.Path, int]]] = (
-        dataclasses.field(default_factory=list)
+    # dict mapping from str (name) to spec + source
+    # dependency name => different dependency specs => different sources
+    cmake_dependencies_with_sources: dict[str, list[tuple[spec.Spec, tuple[pathlib.Path, int]]]] = (
+        dataclasses.field(default_factory=dict)
     )
 
     @classmethod
@@ -357,9 +359,9 @@ class SpackPyPkg:
         default_factory=dict
     )
     cmake_dependency_names: set[str] = dataclasses.field(default_factory=set)
-    _cmake_dependencies_with_sources: list[tuple[spec.Spec, tuple[pathlib.Path, int]]] = (
-        dataclasses.field(default_factory=list)
-    )
+    _cmake_dependencies_with_sources: dict[
+        str, list[tuple[spec.Spec, tuple[pathlib.Path, int]]]
+    ] = dataclasses.field(default_factory=dict)
 
     def _metadata_from_pyproject(self, pyproject: PyProject, use_test_prefix: bool = False) -> None:
         """Load and convert main metadata from given PyProject instance.
@@ -385,11 +387,12 @@ class SpackPyPkg:
             self._license = pyproject.license
 
     def _cmake_dependencies_from_pyproject(self, pyproject: PyProject) -> None:
-        self._cmake_dependencies_with_sources += pyproject.cmake_dependencies_with_sources
+        for name, dependency_list in pyproject.cmake_dependencies_with_sources.items():
+            if name not in self._cmake_dependencies_with_sources:
+                self._cmake_dependencies_with_sources[name] = []
+            self._cmake_dependencies_with_sources[name] += dependency_list
 
-        self.cmake_dependency_names.update(
-            [dep_spec.name for dep_spec, source_info in pyproject.cmake_dependencies_with_sources]
-        )
+        self.cmake_dependency_names.update(list(pyproject.cmake_dependencies_with_sources.keys()))
 
     def _dependencies_from_pyprojects(
         self, pyprojects: list[PyProject], provider: package_providers.PackageProvider
@@ -722,21 +725,34 @@ class SpackPyPkg:
             )
             print(
                 "    # NOTE: These dependencies have only been extracted from the MOST RECENT package"
-                " version included in this Spack recipe. Extend these dependencies manually to "
+                " version included in this Spack recipe.\n    # Extend these dependencies manually to "
                 "explicitly support older versions.\n",
                 file=outfile,
             )
 
-            # we add all non-python dependencies as build+run dependencies
-            print('    # with default_args(type=("build", "run")):', file=outfile)
-            for dep_spec, source_info in self._cmake_dependencies_with_sources:
-                print(f"        # {source_info[0]}, line {source_info[1]}", file=outfile)
+            for dep_name, dep_list in self._cmake_dependencies_with_sources.items():
+                # get all unique dependency specs for this dependency
+                # e.g. boost, boost@4.2, boost@4.3:
+                unique_specs = {dep_spec for dep_spec, _ in dep_list}
+
+                # if all specs are identical, display this spec on top
+                # otherwise, display a spec with just the dependency name on top and the
+                # detailed specs next to the sources
+                main_spec = (
+                    next(iter(unique_specs)) if len(unique_specs) == 1 else spec.Spec(dep_name)
+                )
                 print(
-                    "        # " + _format_dependency(dep_spec, spec.Spec()),
+                    "        # " + _format_dependency(main_spec, spec.Spec()),
                     file=outfile,
                 )
+                for current_spec, source_info in dep_list:
+                    current_spec_str = "" if current_spec == main_spec else f"({current_spec})"
 
-            print("", file=outfile)
+                    print(
+                        f"        #   {source_info[0]}, line {source_info[1]} {current_spec_str}",
+                        file=outfile,
+                    )
+                print("", file=outfile)
 
         print("", file=outfile)
 
@@ -758,10 +774,13 @@ def _load_cmakelists_for_pyproject(
 
         if isinstance(cmakelists_data, str):
             dependencies, new_subdirs = cmake_conversion.convert_cmake_dependencies(cmakelists_data)
-            dependencies_with_source = [
-                (dep, (file_path, line_nr)) for dep, line_nr in dependencies
-            ]
-            pyproject.cmake_dependencies_with_sources += dependencies_with_source
+
+            for dep, line_nr in dependencies:
+                if dep.name not in pyproject.cmake_dependencies_with_sources:
+                    pyproject.cmake_dependencies_with_sources[dep.name] = []
+                pyproject.cmake_dependencies_with_sources[dep.name].append(
+                    (dep, (file_path, line_nr))
+                )
 
             for relative_subdir_path in new_subdirs:
                 subdir_path = current_subdir / relative_subdir_path
@@ -920,6 +939,11 @@ def convert_package(  # noqa: PLR0913 [too many arguments in function definition
     # PyPIProvider (but mypy does not detect this)
     pypi_provider = package_providers.PyPIProvider()  # type: ignore[abstract]
     gh_provider = package_providers.GitHubProvider()  # type: ignore[abstract]
+
+    # Convert https://github.com/user/package-name to user/package-name
+    gh_repo_name = gh_provider.parse_repo_name(name) if gh_provider.package_exists(name) else name
+    if gh_repo_name is not None:
+        name = gh_repo_name
 
     pkg_name = gh_provider.get_package_name(name) if gh_provider.package_exists(name) else name
 
