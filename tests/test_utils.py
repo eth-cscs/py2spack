@@ -83,3 +83,18 @@ def test_extract_file_contents_from_tar_bytes_invalid() -> None:
     with p.open("rb") as file:
         file_content = file.read()
     assert utils.extract_file_content_from_tar_bytes(file_content, toml_path) is None
+
+
+@pytest.mark.parametrize(
+    ("path", "expected"),
+    [
+        (pathlib.Path("a/b/c/d"), pathlib.Path("a/b/c/d")),
+        (pathlib.Path("a/b/./c/d"), pathlib.Path("a/b/c/d")),
+        (pathlib.Path("a/b/../c/d"), pathlib.Path("a/c/d")),
+        (pathlib.Path("a/b/c/d/../../../e/f"), pathlib.Path("a/e/f")),
+        (pathlib.Path("a/b/c/d/../../e/../../f"), pathlib.Path("a/f")),
+        (pathlib.Path("a/b/../../../c"), pathlib.Path("../c")),
+    ],
+)
+def test_normalize_path(path: pathlib.Path, expected: pathlib.Path):
+    assert utils.normalize_path(path) == expected

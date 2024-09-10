@@ -2,11 +2,24 @@
 
 from __future__ import annotations
 
-import pytest
-from spack import spec
 import pathlib
 
+import pytest
+from spack import spec
+
 from py2spack import core, package_providers
+
+
+def test_load_pyprojects():
+    """Not tested."""
+
+
+def test_pyproject():
+    """Tests for PyProject class are in test_pyproject_class.py."""
+
+
+def test_spackpypkg():
+    """Tests for SpackPyPkg class are in test_spackpypkg_class.py."""
 
 
 def test_format_types():
@@ -44,11 +57,6 @@ def test_convert_single(name: str):
 
 
 def write_package_to_repo():
-    pass  # TODO
-
-
-def test_convert_package():
-    # TODO: test this here? basically end to end. move to integration
     pass  # TODO
 
 
@@ -149,48 +157,144 @@ def test_format_dependency(dep_spec: spec.Spec, when_spec: spec.Spec, expected: 
     assert core._format_dependency(dep_spec, when_spec) == expected
 
 
-def test_spackpypkg_cmake_dependencies_from_pyproject():
+class MockPackageProvider:
+    def get_file_content_from_sdist(self, name, version, file_path):
+        if file_path == pathlib.Path() / "CMakeLists.txt":
+            return """cmake_minimum_required(VERSION 3.19)
+include(CMakeDependentOption)
+include(CheckIPOSupported)
+
+# Make CUDA support throw errors if architectures remain unclear
+cmake_policy(SET CMP0104 NEW)
+
+file(READ VERSION FULL_VERSION_STRING)
+string(STRIP "${FULL_VERSION_STRING}" FULL_VERSION_STRING)
+if(NOT ARB_USE_BUNDLED_RANDOM123)
+    find_package(Random123 REQUIRED)
+    target_include_directories(ext-random123 INTERFACE ${RANDOM123_INCLUDE_DIR})
+endif()
+add_subdirectory(ext)
+install(TARGETS ext-hwloc EXPORT arbor-targets)
+find_package(Boost 3.9)
+"""
+        if file_path == pathlib.Path() / "ext" / "CMakeLists.txt":
+            return """project(${SKBUILD_PROJECT_NAME} LANGUAGES CXX)
+set(PYBIND11_NEWPYTHON ON)
+find_package(pybind11 CONFIG REQUIRED)
+add_subdirectory(lib ASDF)
+add_subdirectory(../upanddown)
+
+install(TARGETS example LIBRARY DESTINATION .)
+"""
+        if file_path == pathlib.Path() / "ext" / "lib" / "CMakeLists.txt":
+            return """project(${SKBUILD_PROJECT_NAME} LANGUAGES CXX)
+set(PYBIND11_NEWPYTHON ON)
+find_package(mpi 1.2.3...4.5.6)
+find_package(Boost)
+
+install(TARGETS example LIBRARY DESTINATION .)
+"""
+        if file_path == pathlib.Path() / "upanddown" / "CMakeLists.txt":
+            return """project(${SKBUILD_PROJECT_NAME} LANGUAGES CXX)
+set(PYBIND11_NEWPYTHON ON)
+
+find_package(success)
+
+install(TARGETS example LIBRARY DESTINATION .)
+"""
+        return None
+
+
+def test_load_cmakelists_for_pyproject():
     pyproject = core.PyProject()
-    pyproject.cmake_dependencies_with_sources["dep1"] = [
-        (spec.Spec("dep1"), (pathlib.Path("path/to/file"), 10)),
-        (spec.Spec("dep1@3.4:"), (pathlib.Path("path/to/file"), 15)),
-    ]
 
-    pyproject.cmake_dependencies_with_sources["dep2"] = [
-        (spec.Spec("dep2"), (pathlib.Path("path/to/file"), 2)),
-        (spec.Spec("dep2@1:2"), (pathlib.Path("path/to/other_file"), 10)),
-    ]
+    core._load_cmakelists_for_pyproject(pyproject, MockPackageProvider())
 
-    spackpkg = core.SpackPyPkg()
+    expected = {
+        "cmake": [
+            (spec.Spec("cmake@3.19:"), (pathlib.Path() / "CMakeLists.txt", 1)),
+        ],
+        "random123": [
+            (spec.Spec("random123"), (pathlib.Path() / "CMakeLists.txt", 11)),
+        ],
+        "boost": [
+            (spec.Spec("boost@3.9"), (pathlib.Path() / "CMakeLists.txt", 16)),
+            (spec.Spec("boost"), (pathlib.Path() / "ext" / "lib" / "CMakeLists.txt", 4)),
+        ],
+        "pybind11": [
+            (spec.Spec("pybind11"), (pathlib.Path() / "ext" / "CMakeLists.txt", 3)),
+        ],
+        "mpi": [
+            (
+                spec.Spec("mpi@1.2.3:4.5.6"),
+                (pathlib.Path() / "ext" / "lib" / "CMakeLists.txt", 3),
+            ),
+        ],
+        "success": [
+            (spec.Spec("success"), (pathlib.Path() / "upanddown" / "CMakeLists.txt", 4)),
+        ],
+    }
 
-    spackpkg._cmake_dependencies_from_pyproject(pyproject)
+    assert len(pyproject.cmake_dependencies_with_sources) == len(expected)
 
-    assert spackpkg.cmake_dependency_names == {"dep1", "dep2"}
-
-    assert list(spackpkg._cmake_dependencies_with_sources.items()) == [
-        (
-            "dep1",
-            [
-                (spec.Spec("dep1"), (pathlib.Path("path/to/file"), 10)),
-                (spec.Spec("dep1@3.4:"), (pathlib.Path("path/to/file"), 15)),
-            ],
-        ),
-        (
-            "dep2",
-            [
-                (spec.Spec("dep2"), (pathlib.Path("path/to/file"), 2)),
-                (spec.Spec("dep2@1:2"), (pathlib.Path("path/to/other_file"), 10)),
-            ],
-        ),
-    ]
+    for k, v in pyproject.cmake_dependencies_with_sources.items():
+        assert expected.get(k) == v
 
 
-# TODO @davhofer: functions to test:
-# _get_spack_version_hash_list
-# _people_to_strings
-# SpackPyPkg._get_dependencies
-# SpackPyPkg._get_metadata
-#
-# these last to maybe already integration tests?
-# PyProject.from_toml
-# SpackPyPkg.convert_pkg
+def test_write_package_to_repo():
+    pkg = core.SpackPyPkg()
+    pkg.name = "generated-test-pkg"
+
+    repo = pathlib.Path("tests/test_data/test_repo")
+
+    assert core._write_package_to_repo(pkg, repo)
+
+    package_py = repo / "packages" / "generated-test-pkg" / "package.py"
+
+    assert package_py.is_file()
+
+    with package_py.open() as f:
+        data = f.read()
+        assert "class GeneratedTestPkg(PythonPackage):" in data
+
+    if package_py.is_file():
+        package_py.unlink()
+        pkg_dir = repo / "packages" / "generated-test-pkg"
+        pkg_dir.rmdir()
+
+        assert not package_py.is_file()
+        assert not pkg_dir.is_dir()
+
+
+@pytest.mark.parametrize(
+    ("package"),
+    [
+        "black",
+        "tqdm",
+        "hatchling",
+    ],
+)
+def test_convert_package_writes_file(package: str) -> None:
+    """Test end-to-end conversion of black package."""
+    cwd = pathlib.Path.cwd()
+    repo = cwd / "tests" / "test_data" / "test_repo"
+
+    core.convert_package(
+        package,
+        max_conversions=1,
+        versions_per_package=5,
+        repo=str(repo),
+        use_test_prefix=True,
+    )
+
+    file = repo / "packages" / f"test-py-{package}" / "package.py"
+
+    assert file.is_file()
+
+    if file.is_file():
+        file.unlink()
+        pkg_dir = repo / "packages" / f"test-py-{package}"
+        pkg_dir.rmdir()
+
+        assert not file.is_file()
+        assert not pkg_dir.is_dir()

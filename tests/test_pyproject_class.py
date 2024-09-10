@@ -7,6 +7,18 @@ from packaging import requirements, specifiers, version as pv
 from py2spack import core
 
 
+def test_pyproject_load_metadata():
+    """Not tested."""
+
+
+def test_pyproject_load_build_system():
+    """Not tested."""
+
+
+def test_pyproject_load_dependencies():
+    """Not tested."""
+
+
 PYPROJECT_DATA = {
     "project": {
         "name": "black",
