@@ -28,6 +28,7 @@ def test_convert_package_writes_file(package: str) -> None:
         versions_per_package=5,
         repo=str(repo),
         use_test_prefix=True,
+        ignore=["slack-sdk"],
     )
 
     file = repo / "packages" / f"test-py-{package}" / "package.py"
