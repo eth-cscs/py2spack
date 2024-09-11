@@ -93,7 +93,7 @@ firefox _build/html/index.html
 
 ## Testing
 
-After installing the package, the tests can be run from the project root directory as follows:
+After installing the package with the `tests` option, the tests can be run from the project root directory as follows:
 
 ```bash
 python -m pytest

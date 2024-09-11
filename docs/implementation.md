@@ -80,7 +80,7 @@ Instead of the `pypi` field, packages from GitHub contain a `git` and a `url` fi
 
 ## Testing
 
-After installing the package, the tests can be run from the project root directory as follows:
+After installing the package with the `tests` option, the tests can be run from the project root directory as follows:
 
 ```
 python -m pytest
