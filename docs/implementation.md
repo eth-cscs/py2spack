@@ -1,4 +1,3 @@
-
 ## Implementation
 
 ### Modules overview
@@ -22,6 +21,10 @@ Utilities for converting python packaging requirements, dependencies, versions, 
 
 Utilities for parsing pyproject.toml files. The code is partially adapted from [pyproject-metadata](https://github.com/pypa/pyproject-metadata) on GitHub, with customized error handling.
 
+#### cmake_conversion.py
+
+Utilities for parsing CMakeLists.txt files and converting specified dependencies to Spack.
+
 #### cli.py
 
 Makes the main `core.convert_package` method usable and configurable from the command line.
@@ -30,6 +33,10 @@ Makes the main `core.convert_package` method usable and configurable from the co
 
 Various general utilities for file handling and downloading.
 
+#### spack_utils.py
+
+Various utilities for interacting with the local Spack installation.
+
 ### Main program
 
 The main program is excecuted by the method `core.convert_package`. It performs or at least initiates all of the steps described in the workflow in the initial section of this page. Its arguments are
@@ -37,19 +44,17 @@ The main program is excecuted by the method `core.convert_package`. It performs 
 - `name`: The name of the package to be converted. If `name` is a GitHub repository url or a string of the form "user/repo-name", the package will be converted from GitHub instead of PyPI.
 - `max_conversions`: The maximum number of packages that will be converted. If this limit is reached execution will stop, even if there still are uncoverted dependencies. Default: `10`
 - `versions_per_package`: How many versions (at most) will be converted per package. Default: `10`
-- `repo_path`: Path to the local Spack repository where converted packages will be stored and a lookup for already existing packages will be performed (in the future, all Spack repositories will be used for the existing packages lookup). If None is specified, py2spack will use the builtin Spack repository at `$SPACK_ROOT/var/spack/builtin/`
+- `repo_path`: Path to the local Spack repository where converted packages will be stored. If None is specified, the user will be prompted to provide a path or choose a repo from the local Spack repositories.
 - `ignore`: A list of packages that will not be converted
-- `use_test_prefix`: Flag used for development
+- `allow_duplicate`: Boolean flag to convert the package even if a package of the same name already exists in some Spack repo. This will NOT overwrite the existing package. Only applies to the main package to be converted, not to dependencies.
 
-The method maintains a queue of packages yet to be converted, which initially just holds the package specified by the user via the CLI. In each iteration, it pops the next package name from the queue, and tries to convert it. If conversion was successful, it tries to create a new directory in the chosen Spack repository and writes the recipe to a new `package.py` file there. It then goes through all of the dependencies of the package, and checks if they are not already in the queue, not in the ignore list, do not exist in the Spack repo already, and have not been attempted to be converted but failed. If all of these are true, it adds the dependency to the queue. To check if a package `my-package` already exists in Spack, it checks if a directory called `py-my-package` exists in `spack_repository/packages/` and if it contains a `package.py` file.
-
-> Note: Currently, only the provided, single Spack repository is checked for existing packages. We plan on changing this to check all repositories in the `repos.yaml` file, in accordance to how Spack looks for packages.
+The method maintains a queue of packages yet to be converted, which initially just holds the package specified by the user via the CLI. In each iteration, it pops the next package name from the queue, and tries to convert it. If conversion was successful, it tries to create a new directory in the chosen Spack repository and writes the recipe to a new `package.py` file there. It then goes through all of the dependencies of the package, and checks if they are not already in the queue, not in the ignore list, do not exist in the Spack repo already, and have not been attempted to be converted but failed. If all of these are true, it adds the dependency to the queue. To check if a package `my-package` already exists in Spack, it uses the `spack list` which searches all local Spack repositories.
 
 In the end, the method prints a small summary with all converted packages, packages that failed to convert, and unconverted dependencies not found in Spack. For each of the unconverted dependencies, it will also display a flag if there are dependency conflicts, errors or other information in the `package.py` file that require manual review.
 
 ### Package providers interface
 
-In order to resolve dependencies, discover existing versions, and obtain source distributions and `pyproject.toml` files, we use the `PyProjectProvider` interface. It is defined as a Python Protocol and contains the methods `package_exists`, `get_versions`, `get_pyproject`, and `get_sdist_hash`. Any implementation must also implement these methods. Currently there are two implementations, `PyPIProvider` and `GitHubProvider`.
+In order to resolve dependencies, discover existing versions, and obtain source distributions and `pyproject.toml` files, we use the `PackageProvider` interface. It is defined as a Python Protocol and contains the methods `package_exists`, `get_versions`, `get_pyproject`, `get_sdist_hash`, and `get_file_content_from_sdist`. Any implementation must also implement these methods. Currently there are two implementations, `PyPIProvider` and `GitHubProvider`.
 
 #### PyPIProvider
 

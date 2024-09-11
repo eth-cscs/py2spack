@@ -2,25 +2,25 @@
 
 The high level workflow or description of what happens when you convert a package with Spack, e.g. after running `py2spack my-package`, is as follows:
 
-1. Try to find a local Spack repository (if not specified via CLI). This will be used to store converted packages and check for existing ones.
-2. Check if `my-package` exists on PyPI.
+1. Ask the user to provide a local Spack repository (if not specified via CLI) where converted packages will be stored.
+2. Check if `my-package` exists on PyPI (or on GitHub, if it is a repository URL. We will assume it to be a PyPI package here).
 3. Discover available versions and source distributions on PyPI.
 4. For each version (or at most `--versions-per-package` many):
    1. Download the source distribution
    2. Parse the pyproject.toml file
    3. Convert metadata and dependencies from the python packaging format to their Spack equivalent, where possible.
-   4. Depending on the build-backend, if supported, check for non-python dependencies and build steps and try to convert those **\[UNDER DEVELOPMENT\]**.
+   4. Depending on the build-backend, if supported, check for non-python dependencies and build steps and try to convert those.
 5. Combine the dependencies of all downloaded versions and simplify the specs/constraints.
 6. Check for conflicts/unsatisfiable dependency requirements.
 7. If successful, save the converted package to the local Spack repository (by creating a directory `packages/py-my-package/` and writing a `package.py` file inside of it).
 8. Check for dependencies of `my-package` that are not in Spack/converted/in the queue yet. Add those to the conversion queue.
-9. Repeat from 2. with the next package from the queue.
-
+9. Repeat from 2. with the next package from the queue, until no dependencies are left or `--max-conversions` is reached.
 
 ### Package conversion
+
 This section describes how an individual python package is converted to Spack.
 
-Conversion of a package, provided as a string `name`, is handled by the method `core._convert_single`. It first checks whether it is dealing with a GitHub package, by calling the `GitHubProvider.package_exists(name)` method. After deciding on the right provider, it uses it to obtain a list of all availabe package versions. For each version, the `pyproject.toml` contents are loaded and parsed, resulting in a `core.PyProject` object.
+Conversion of a package, provided as a string `name`, is handled by the method `core._convert_single`. It first checks whether it is dealing with a GitHub package, by calling the `GitHubProvider.package_exists(name)` method. After deciding on the right provider, it uses it to obtain a list of all availabe package versions. For each version, the `pyproject.toml` contents are loaded and parsed, resulting in one `core.PyProject` object each.
 This list of `PyProject`s is then passed to `core.SpackPyPkg.build_from_pyprojects`. There, first the newest version of the package/pyprojects is used for converting the general metadata. This metadata includes
 
 - the package name
@@ -59,11 +59,24 @@ Most (recoverable) errors that occur at any point during the conversion process,
 
 ### Python extensions
 
-> Work in progress...
+Build processes and their specifications for such packages can be very involved and complex and converting them accurately is generally not fully automatable. Our goal is thus simply to provide the user with hints and suggestions where possible. But we still require the user to review and "fine-tune" the `package.py` file manually. The information we want to "extract" and add to the Spack package is mainly just the declared dependencies and their version- or other constraints.
 
-We are currently working on supporting python extensions (python packages including/providing bindings for compiled code like C++), starting with the [scikit-build-core](https://scikit-build-core.readthedocs.io/en/latest/) backend and pybind11.
+We currently only support python extensions (python packages including/providing bindings for compiled code like C++) using the [scikit-build-core](https://scikit-build-core.readthedocs.io/en/latest/) backend.
 
-Build processes for such packages can be very involved and complex and are generally not fully automatable. Our goal is thus simply to provide the user with hints and suggestions where possible. But we still require them to review and "fine-tune" the `package.py` file manually. Since scikit-build-core is a wrapper around cmake, we initially just plan to try to extract any sort of version constraints, external dependencies, flags, etc. found in `CMakeLists.txt`, add them to the `package.py` as comments, and let the user implement the details.
+> This could be extended to other very similar build backends, e.g. meson-python.
+
+#### scikit-build-core
+
+Since scikit-build-core is a wrapper around cmake, python packages with this backend come with at least one `CMakeLists.txt` file. In order to get the dependencies, we parse the file and look at every `cmake_minimum_required` and `find_package` statement, and convert the corresponding dependency to a Spack Spec. We also recursively search any included subdirectory (from `add_subdirectory`) for additional CMakeLists.txt files which we process identically. Note that we ignore any conditional statements that would lead to the inclusion/exclusion of dependencies under certain conditions - we assume every dependency to be included.
+Finally, we display all converted dependencies in the the `package.py` as comments, letting the user choose whether they want to use, modify or delete them. To each dependency, we also add the source(s) where it was specified, i.e. the path to the `CMakeLists.txt` file and the line number. There can be multiple sources for a single dependency if it was specified multiple times. If the specified dependency versions differ between sources, they are added behind the source. The addition of this source information should make it easier for the user to check and edit the dependencies.
+
+For example, if the dependency `test` was declared two times, once in `CMakeLists.txt` as `find_package(test)` and once in `ext/CMakeLists.txt` as `find_package(test 4.2)`, the resulting section in the `package.py` file would look like this:
+
+```python
+    # depends_on("test")
+    #   CMakeLists.txt, line 15
+    #   ext/CMakeLists.txt, line 123 (test@4.2)
+```
 
 ### Package naming conventions
 

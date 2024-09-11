@@ -1,8 +1,8 @@
 # py2spack: Automating conversion of standard python packages to Spack package recipes
 
-Github repository for the CSCS internship project with the goal of developing a Python tool for automatically generating Spark package recipes based on existing Python packages, with the ability to handle direct and transitive dependencies and flexible versions.
+Github repository for the CSCS internship project with the goal of developing a Python tool for automatically generating Spack package recipes based on existing Python packages, with the ability to handle direct and transitive dependencies and flexible versions.
 
-For more information, see the the [Documentation](#Documentation).
+For more information, see the [Documentation](#Documentation).
 
 ## Installation
 
@@ -33,10 +33,7 @@ The package is still in development and not yet published to PyPI. It can howeve
 ## Usage
 
 ```
-usage: py2spack [-h] [--max-conversions MAX_CONVERSIONS]
-                [--versions-per-package VERSIONS_PER_PACKAGE]
-                [--repo REPO] [--ignore [IGNORE ...]] [--testing]
-                package
+usage: py2spack [-h] [--max-conversions MAX_CONVERSIONS] [--versions-per-package VERSIONS_PER_PACKAGE] [--repo REPO] [--allow-duplicate] package [--ignore [IGNORE ...]]
 
 CLI for converting a python package and its dependencies to Spack.
 
@@ -48,16 +45,11 @@ options:
   --max-conversions MAX_CONVERSIONS
                         Maximum number of packages that are converted
   --versions-per-package VERSIONS_PER_PACKAGE
-                        Versions per package to be downloaded and
-                        converted
-  --repo REPO           Name of or full path to local Spack
-                        repository where packages should be saved
+                        Versions per package to be downloaded and converted
+  --repo REPO           Name of or full path to local Spack repository where packages should be saved
   --ignore [IGNORE ...]
-                        List of packages to ignore. Must be specified
-                        last (after <package> argument) for the
-                        command to work
-  --testing             For testing purposes; adds the prefix 'test-'
-                        when saving packages
+                        List of packages to ignore. Must be specified last (after <package> argument) for the command to work
+  --allow-duplicate     Convert the package, even if a package of the same name already exists in some Spack repo. Will NOT overwrite the existing package. Only applies to the main package to be converted, not to dependencies.
 ```
 
 ### Conversion from PyPI
@@ -95,7 +87,7 @@ You can then browse it locally, e.g.
 firefox _build/html/index.html
 ```
 
-## Running tests
+## Testing
 
 After installing the package, the tests can be run from the project root directory as follows:
 
@@ -103,8 +95,4 @@ After installing the package, the tests can be run from the project root directo
 python -m pytest
 ```
 
-## Important links
-
-- [Detailed Project Description](<CSCS Internship Project Description.md>)
-- [Wiki](https://github.com/davhofer/py2spack/wiki)
-- [Changelog](CHANGELOG.md)
+Installation tests for converted packages are run through GitHub Actions in a Docker container, see `.github/workflows/run-installation-tests.yaml`.
