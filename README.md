@@ -1,9 +1,5 @@
 # py2spack: Automating conversion of standard python packages to Spack package recipes
 
-Created by David Hofer ([davhofer](https://github.com/davhofer), `davhofer [at] ethz [dot] ch`) during an internship at [CSCS](https://www.cscs.ch/).
-
----
-
 Github repository for the CSCS internship project with the goal of developing a Python tool for automatically generating Spack package recipes based on existing Python packages, with the ability to handle direct and transitive dependencies and flexible versions.
 
 For more information, see the [Documentation](#Documentation).
@@ -100,3 +96,7 @@ python -m pytest
 ```
 
 Installation tests for converted packages are run through GitHub Actions in a Docker container, see `.github/workflows/run-installation-tests.yaml`.
+
+## Author
+
+Created by David Hofer ([davhofer](https://github.com/davhofer), `davhofer [at] ethz [dot] ch`) during an internship at [CSCS](https://www.cscs.ch/).
