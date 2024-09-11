@@ -975,12 +975,13 @@ def _write_package_to_repo(package: SpackPyPkg, spack_repo: pathlib.Path) -> boo
 # TODO @davhofer: allow multiple providers/user specification/check a list of providers for package
 # TODO @davhofer: some sort of progress bar/console output while converting, downloading archives, etc.
 # TODO @davhofer: currently, dependencies for variants/optional dependencies are also converted. Make this optional? Add flag to disable conversion of optional/extra dependencies. Map dependency name -> is_optional boolean flag
-def convert_package(
+def convert_package(  # noqa: PLR0913 [too many arguments in function defintion]
     name: str,
     max_conversions: int = 10,
     versions_per_package: int = 10,
     repo: str | None = None,
     ignore: list[str] | None = None,
+    allow_duplicate: bool = False,
 ) -> None:
     """Convert a package and its dependencies to Spack.
 
@@ -994,6 +995,10 @@ def convert_package(
             used to build the package dependencies.
         repo: Local Spack repository where all converted packages are stored.
         ignore: List of packages to ignore during conversion.
+        allow_duplicate: Convert the package, even if a package of the same name
+            already exists in some Spack repo. This will NOT overwrite the existing
+            package. Only applies to the main package to be converted, not to
+            dependencies.
 
     Returns:
         None, packages are directly written to the repo.
@@ -1016,8 +1021,8 @@ def convert_package(
     pkg_name = gh_provider.get_package_name(name) if gh_provider.package_exists(name) else name
 
     spack_name = conversion_tools.pkg_to_spack_name(pkg_name)
-    if spack_utils.package_exists_in_spack(spack_name):
-        print(f"Package {spack_name} already exists in Spack repository")
+    if not allow_duplicate and spack_utils.package_exists_in_spack(spack_name):
+        print(f"Package {spack_name} already exists in Spack")
         return
 
     # queue of packages to be converted

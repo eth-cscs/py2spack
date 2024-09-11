@@ -42,9 +42,9 @@ def main() -> None:
         default=None,
     )
     parser.add_argument(
-        "--testing",
+        "--allow-duplicate",
         action="store_true",
-        help="For testing purposes; adds the prefix 'test-' when saving packages",
+        help="Convert the package, even if a package of the same name already exists in some Spack repo. Will NOT overwrite the existing package. Only applies to the main package to be converted, not to dependencies.",
     )
 
     args = parser.parse_args()
@@ -55,6 +55,7 @@ def main() -> None:
         versions_per_package=args.versions_per_package,
         repo=args.repo,
         ignore=args.ignore,
+        allow_duplicate=args.allow_duplicate,
     )
 
 
