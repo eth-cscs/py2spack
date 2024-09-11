@@ -284,7 +284,6 @@ def test_convert_package_writes_file(package: str) -> None:
         max_conversions=1,
         versions_per_package=5,
         repo=str(repo),
-        use_test_prefix=True,
     )
 
     file = repo / "packages" / f"test-py-{package}" / "package.py"

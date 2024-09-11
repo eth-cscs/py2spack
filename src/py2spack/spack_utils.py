@@ -15,6 +15,8 @@ def package_exists_in_spack(name: str) -> bool:
     """
     result = run_spack_command(f"spack list {name}")
     if result is not None:
+        # regex match to make sure the name does not just occur as a substring of
+        # another package
         pattern = r"(\b)(?<!-)" + re.escape(name) + r"(?!-)\b"
         return re.search(pattern, result) is not None
     return False
@@ -26,13 +28,19 @@ def is_spack_repo(repo: pathlib.Path) -> bool:
 
 
 def run_spack_command(command: str) -> None | str:
-    """Run spack command and return stdout."""
+    """Run spack command and return stdout.
+
+    Requires that either the `spack` command itself or the `SPACK_ROOT` environment
+    variable is available in the current shell.
+    """
     # check if spack command is available (returncode != 0 => not available)
     if subprocess.run(
         "spack -h", capture_output=True, text=True, shell=True, check=False
     ).returncode:
+        # if command failed, replace `spack` by $SPACK_ROOT/bin/spack
         cmd_list = command.split(" ")
-        assert cmd_list[0] == "spack"
+        if cmd_list[0] != "spack":
+            return None
         cmd_list[0] = "$SPACK_ROOT/bin/spack"
         command = " ".join(cmd_list)
 
@@ -40,16 +48,13 @@ def run_spack_command(command: str) -> None | str:
 
 
 def get_spack_repo(spack_repository: str | None) -> pathlib.Path:
-    """Find a valid Spack repository for the user."""
-    # TODO @davhofer: cleanup/improve this function
-    # TODO @davhofer: allow user to choose spack repo from available ones
+    """Get a valid Spack repository for the user.
 
-    # 1. if user provided a repo, use that
-    # 2. check if default repository exists using $SPACK_ROOT
-    # 3. try to use spack command to get repos
-    # 4. ask user to provide a repo
+    If no repository is provided or it is invalid, prompt the user to choose from the
+    existing repositories.
+    """
+    # load available Spack repositories
     repo_dict = {}
-
     result = run_spack_command("spack repo list")
     if result:
         for line in result.split("\n"):
@@ -67,9 +72,9 @@ def get_spack_repo(spack_repository: str | None) -> pathlib.Path:
             repo_dict[name] = path
 
     repo_path = None
-
+    # check if a repository was provided manually
     if spack_repository is not None:
-        # get provided repository
+        # check if it was provided by name (instead of by path) and this name exists
         if spack_repository in repo_dict:
             spack_repository = repo_dict[spack_repository]
 
@@ -77,11 +82,12 @@ def get_spack_repo(spack_repository: str | None) -> pathlib.Path:
 
     # if no repo found, prompt user
     while repo_path is None or not is_spack_repo(repo_path):
+        # display reason for prompt
         if repo_path is not None and not is_spack_repo(repo_path):
             print(f"Not a Spack repository: {repo_path}\n")
         elif repo_path is None:
             print("No repository provided.\n")
-
+        # display available repositories
         if result:
             print("Repositories found by Spack:")
             print(result)
@@ -93,6 +99,7 @@ def get_spack_repo(spack_repository: str | None) -> pathlib.Path:
         )
         print()
 
+        # check if repository was provided by name
         if spack_repo_str in repo_dict:
             spack_repo_str = repo_dict[spack_repo_str]
 

@@ -65,9 +65,15 @@ def extract_file_content_from_tar_bytes(
 
 
 def normalize_path(path: pathlib.Path) -> pathlib.Path:
-    """Remove relative path modifiers like .. from paths to make them comparable."""
+    """Remove relative path modifiers like ../ from paths to make them comparable.
+
+    Treat path like a stack, every '..' pops off a level. Series of '..' at the
+    beginning of the path remain as they are.
+    """
     path_arr = str(path).split("/")
 
+    # need to maintain start index to be able to skip past potential '..' at the
+    # beginning of the path
     start_idx = 0
     while ".." in path_arr:
         try:

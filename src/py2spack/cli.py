@@ -30,9 +30,17 @@ def main() -> None:
         help="Versions per package to be downloaded and converted",
     )
     parser.add_argument(
-        "--repo", type=str, help="Name of or full path to local Spack repository where packages should be saved", default=None
+        "--repo",
+        type=str,
+        help="Name of or full path to local Spack repository where packages should be saved",
+        default=None,
     )
-    parser.add_argument("--ignore", nargs="*", help="List of packages to ignore. Must be specified last (after <package> argument) for the command to work", default=None)
+    parser.add_argument(
+        "--ignore",
+        nargs="*",
+        help="List of packages to ignore. Must be specified last (after <package> argument) for the command to work",
+        default=None,
+    )
     parser.add_argument(
         "--testing",
         action="store_true",
@@ -47,7 +55,6 @@ def main() -> None:
         versions_per_package=args.versions_per_package,
         repo=args.repo,
         ignore=args.ignore,
-        use_test_prefix=args.testing,
     )
 
 
