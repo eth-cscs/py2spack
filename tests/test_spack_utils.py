@@ -7,7 +7,7 @@ from py2spack import spack_utils
 
 
 def test_get_spack_repo1():
-    repo = pathlib.Path.cwd() / "tests" / "test_data" / "test_repo"
+    repo = pathlib.Path.cwd() / "tests" / "sample_data" / "sample_repo"
 
     assert spack_utils.get_spack_repo(str(repo)) == repo
 
@@ -36,17 +36,17 @@ def test_is_spack_repo1():
 
 
 def test_is_spack_repo2():
-    repo = pathlib.Path.cwd() / "tests" / "test_data" / "test_repo"
+    repo = pathlib.Path.cwd() / "tests" / "sample_data" / "sample_repo"
     assert spack_utils.is_spack_repo(repo)
 
 
 def test_is_spack_repo3():
-    repo = pathlib.Path.cwd() / "tests" / "test_data" / "invalid"
+    repo = pathlib.Path.cwd() / "tests" / "sample_data" / "invalid"
     assert not spack_utils.is_spack_repo(repo)
 
 
 def test_is_spack_repo4():
-    repo = pathlib.Path.cwd() / "tests" / "test_data"
+    repo = pathlib.Path.cwd() / "tests" / "sample_data"
     assert not spack_utils.is_spack_repo(repo)
 
 

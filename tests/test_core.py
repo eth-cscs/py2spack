@@ -245,7 +245,7 @@ def test_write_package_to_repo():
     pkg = core.SpackPyPkg()
     pkg.name = "generated-test-pkg"
 
-    repo = pathlib.Path("tests/test_data/test_repo")
+    repo = pathlib.Path("tests/sample_data/sample_repo")
 
     assert core._write_package_to_repo(pkg, repo)
 
@@ -277,7 +277,7 @@ def test_write_package_to_repo():
 def test_convert_package_writes_file(package: str) -> None:
     """Test end-to-end conversion of black package."""
     cwd = pathlib.Path.cwd()
-    repo = cwd / "tests" / "test_data" / "test_repo"
+    repo = cwd / "tests" / "sample_data" / "sample_repo"
 
     core.convert_package(
         package, max_conversions=1, versions_per_package=5, repo=str(repo), allow_duplicate=True

@@ -309,7 +309,7 @@ def test_convert_add_subdirectory(add_subdirectory: ast.Command, expected: str |
 
 
 def test_convert_cmake_dependencies():
-    with pathlib.Path("tests/test_data/CMakeLists.txt").open() as f:
+    with pathlib.Path("tests/sample_data/CMakeLists.txt").open() as f:
         data = f.read()
 
     expected_subdirectories = {

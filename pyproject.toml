@@ -204,6 +204,5 @@ addopts = [
     "--showlocals",
     "--strict-markers",
     "--strict-config",
-    "--ignore=tests/test_data/",
 ]
 testpaths = ["tests"]
