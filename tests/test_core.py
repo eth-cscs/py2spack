@@ -280,19 +280,16 @@ def test_convert_package_writes_file(package: str) -> None:
     repo = cwd / "tests" / "test_data" / "test_repo"
 
     core.convert_package(
-        package,
-        max_conversions=1,
-        versions_per_package=5,
-        repo=str(repo),
+        package, max_conversions=1, versions_per_package=5, repo=str(repo), allow_duplicate=True
     )
 
-    file = repo / "packages" / f"test-py-{package}" / "package.py"
+    pkg_dir = repo / "packages" / f"py-{package}"
+    file = pkg_dir / "package.py"
 
     assert file.is_file()
 
     if file.is_file():
         file.unlink()
-        pkg_dir = repo / "packages" / f"test-py-{package}"
         pkg_dir.rmdir()
 
         assert not file.is_file()

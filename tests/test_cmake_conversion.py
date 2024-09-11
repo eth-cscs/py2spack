@@ -290,16 +290,6 @@ def test_convert_find_package(find_package: ast.Command, expected: spec.Spec | N
                 column=1,
                 span=slice(11812, 11833, None),
                 identifier="add_subdirectory",
-                args=[],
-            ),
-            None,
-        ),
-        (
-            ast.Command(
-                line=307,
-                column=1,
-                span=slice(11812, 11833, None),
-                identifier="add_subdirectory",
                 args=[
                     lexer.Token(
                         kind="RAW",
