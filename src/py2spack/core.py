@@ -1068,6 +1068,8 @@ def convert_package(  # noqa: PLR0913 [too many arguments in function defintion]
                 or bool(spackpkg.dependency_conflict_errors)
                 or bool(spackpkg.cmake_dependency_names)
             )
+
+            print(f"> Converted package {name}")
             converted.append((name, spackpkg.num_converted_versions, dep_requires_fix))
 
             for dep in spackpkg.original_dependencies:
@@ -1087,9 +1089,27 @@ def convert_package(  # noqa: PLR0913 [too many arguments in function defintion]
                 if not spack_utils.package_exists_in_spack(dep) and dep not in ignore_list:
                     missing_non_python_deps.add(dep)
 
+            if len(converted) == max_conversions and queue:
+                print("\nUnconverted dependency packages:")
+                for p in queue:
+                    print(f" - {p}")
+                user_input = ""
+                while (
+                    user_input := input(
+                        f"\n'max_conversions' limit reached but {len(queue)} unconverted dependencies remaining. Do you want to:\n 'n' - stop conversion\n 'y' - convert the {len(queue)} remaining dependencies\n 'all' - continue conversion of all dependencies without 'max_conversions' limit (you can cancel at any time using Ctrl+C)\n>> "
+                    )
+                ) not in ["y", "n", "all"]:
+                    continue
+
+                if user_input == "y":
+                    max_conversions += len(queue)
+                elif user_input == "all":
+                    max_conversions = -1
+
     except KeyboardInterrupt:
         # display the current package in summary
-        queue.insert(0, name)
+        if name not in converted and name not in conversion_failures:
+            queue.insert(0, name)
 
     _print_summary(converted, queue, conversion_failures, missing_non_python_deps)
 

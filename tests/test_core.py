@@ -280,7 +280,12 @@ def test_convert_package_writes_file(package: str) -> None:
     repo = cwd / "tests" / "sample_data" / "sample_repo"
 
     core.convert_package(
-        package, max_conversions=1, versions_per_package=5, repo=str(repo), allow_duplicate=True
+        package,
+        max_conversions=1,
+        versions_per_package=5,
+        repo=str(repo),
+        allow_duplicate=True,
+        ignore=["slack-sdk"],
     )
 
     pkg_dir = repo / "packages" / f"py-{package}"
