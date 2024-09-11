@@ -18,6 +18,7 @@ from py2spack import (
     package_providers,
     pyproject_parsing,
     spack_utils,
+    utils,
 )
 
 
@@ -62,9 +63,11 @@ def _format_dependency(
     Format the dependency (given as the main dependency spec and a "when" spec)
     as a "depends_on(...)" statement for package.py.
 
-    Parameters:
+    Args:
         dependency_spec: Main dependency spec, e.g. "package@4.2:"
         when_spec: Spec for "when=" argument, e.g. "+extra ^python@:3.10"
+        dep_types: Set of strings like "build", "run", used for Spack to know which
+            stages this dependency is relevant to.
 
     Returns:
         Formatted "depends_on(...)" statement for package.py.
@@ -102,6 +105,14 @@ def _find_dependency_satisfiability_conflicts(
     "when_spec_1.intersects(when_spec_2) => dep_spec1.intersects(dep_spec_2)",
     or "if the dependency specs intersetct, then the when specs have to
     intersect too".
+
+    Args:
+        dependency_list: A list of dependencies, each consisting of dependency spec,
+            when spec, and a set of dependency types (e.g. {"build", "run"}).
+
+    Returns:
+        A list of DependencyConflictErrors, i.e. pairs of dependencies that are in
+        conflict with each other.
     """
     dependency_conflicts: list[DependencyConflictError] = []
 
@@ -127,7 +138,7 @@ def _find_dependency_satisfiability_conflicts(
 def _people_to_strings(
     parsed_people: list[tuple[str | None, str | None]],
 ) -> list[str]:
-    """Convert 'authors' or 'maintainers' lists to strings."""
+    """Convert 'authors' or 'maintainers' to a simple list of strings."""
     people: list[str] = []
 
     for p0, p1 in parsed_people:
@@ -176,8 +187,11 @@ class PyProject:
     provider: package_providers.PackageProvider | None = None
 
     cmake_dependency_names: set[str] = dataclasses.field(default_factory=set)
-    cmake_dependencies: list[spec.Spec] = dataclasses.field(default_factory=list)
-    cmake_errors: list[cmake_conversion.CMakeParseError] = dataclasses.field(default_factory=list)
+    # dict mapping from str (name) to spec + source
+    # dependency name => different dependency specs => different sources
+    cmake_dependencies_with_sources: dict[str, list[tuple[spec.Spec, tuple[pathlib.Path, int]]]] = (
+        dataclasses.field(default_factory=dict)
+    )
 
     @classmethod
     def from_toml(
@@ -190,10 +204,10 @@ class PyProject:
         it can be read from the pyproject.toml file if it is specified
         explicitly there.
 
-        Parameters:
-            path: The path to the toml file or data (dict) extracted from toml.
-            version: The version of the package which the pyproject.toml
-            corresponds to.
+        Args:
+            file_content: The content of the pyproject.toml file as a python dict.
+            name: Name of the package.
+            version: Specific package version that this pyproject.toml was taken from.
 
         Returns:
             A PyProject instance.
@@ -232,6 +246,7 @@ class PyProject:
         return pyproject
 
     def _load_metadata(self, fetcher: pyproject_parsing.DataFetcher) -> None:
+        """Gets the general metadata fields from the pyproject.toml parser."""
         description = fetcher.get_str("project.description")
         if isinstance(description, pyproject_parsing.ConfigurationError):
             self.metadata_errors.append(description)
@@ -263,6 +278,7 @@ class PyProject:
             self.license = lic
 
     def _load_build_system(self, fetcher: pyproject_parsing.DataFetcher) -> None:
+        """Gets the build system from the pyproject.toml parser."""
         build_req_result = fetcher.get_build_requires()
         if isinstance(build_req_result, pyproject_parsing.ConfigurationError):
             self.dependency_errors.append(build_req_result)
@@ -278,6 +294,7 @@ class PyProject:
             self.build_backend = build_backend_result
 
     def _load_dependencies(self, fetcher: pyproject_parsing.DataFetcher) -> None:
+        """Gets the various dependencies from the pyproject.toml parser."""
         requires_python = fetcher.get_requires_python()
         if isinstance(requires_python, pyproject_parsing.ConfigurationError):
             self.dependency_errors.append(requires_python)
@@ -355,16 +372,17 @@ class SpackPyPkg:
         default_factory=dict
     )
     cmake_dependency_names: set[str] = dataclasses.field(default_factory=set)
+    _cmake_dependencies_with_sources: dict[
+        str, list[tuple[spec.Spec, tuple[pathlib.Path, int]]]
+    ] = dataclasses.field(default_factory=dict)
 
-    def _metadata_from_pyproject(self, pyproject: PyProject, use_test_prefix: bool = False) -> None:
+    def _metadata_from_pyproject(self, pyproject: PyProject) -> None:
         """Load and convert main metadata from given PyProject instance.
 
         Does not include pypi field, versions, or the dependencies.
         """
         self.pypi_name = pyproject.name
-        self.name = conversion_tools.pkg_to_spack_name(
-            pyproject.name, use_test_prefix=use_test_prefix
-        )
+        self.name = conversion_tools.pkg_to_spack_name(pyproject.name)
         self._description = pyproject.description
         self._homepage = pyproject.homepage
 
@@ -380,22 +398,13 @@ class SpackPyPkg:
             self._license = pyproject.license
 
     def _cmake_dependencies_from_pyproject(self, pyproject: PyProject) -> None:
-        for dep_spec in pyproject.cmake_dependencies:
-            self.cmake_dependency_names.add(dep_spec.name)
+        """Get the dependencies extracted from CMakeLists.txt from the PyProject."""
+        for name, dependency_list in pyproject.cmake_dependencies_with_sources.items():
+            if name not in self._cmake_dependencies_with_sources:
+                self._cmake_dependencies_with_sources[name] = []
+            self._cmake_dependencies_with_sources[name] += dependency_list
 
-            full_spec = (dep_spec, spec.Spec())
-
-            if dep_spec not in self._specs_to_versions:
-                self._specs_to_versions[full_spec] = []
-
-            # add the current version to this dependency
-            self._specs_to_versions[full_spec].append(pyproject.version)
-
-            if dep_spec not in self._specs_to_types:
-                self._specs_to_types[full_spec] = set()
-
-            self._specs_to_types[full_spec].add("build")
-            self._specs_to_types[full_spec].add("run")
+        self.cmake_dependency_names.update(list(pyproject.cmake_dependencies_with_sources.keys()))
 
     def _dependencies_from_pyprojects(
         self, pyprojects: list[PyProject], provider: package_providers.PackageProvider
@@ -450,6 +459,16 @@ class SpackPyPkg:
         self._combine_dependencies()
 
     def _combine_dependencies(self) -> None:
+        """Simplify the dependencies stored in self._specs_to_versions.
+
+        Each unique dependency spec (a pair of main dependency Spec and when-Spec, to be
+        precise) maps to a list of package versions for which this dependency applies.
+        Here, we compress/simplify this list and directly add it to the when-Spec of the
+        dependency. The final dependencies are stored by the their 'type', e.g. all
+        dependencies with type {"build", "run"} are stored together, all dependencies
+        with type {"build"} are stored together, etc. This makes formatting the
+        package.py easier.
+        """
         # now we have a list of versions for each requirement
         # convert versions to an equivalent condensed version list, and add this
         # list to the when spec. from there, build a complete list with all
@@ -492,7 +511,20 @@ class SpackPyPkg:
         provider: package_providers.PackageProvider,
         from_extra: str | None = None,
     ) -> None:
-        """Convert a requirement and store the package version with the result Specs."""
+        """Convert a requirement and store the package version with the result Specs.
+
+        Args:
+            r: Packaging requirement specifying the dependency.
+            dependency_types: List of strings specifying for which stages this
+                dependency is required, e.g. "build", "run".
+            pyproject_version: Package version that specified this dependency.
+            provider: Package Provider.
+            from_extra: The name of the extra that specified this requirement as an
+                optional dependency, if any.
+
+        Returns:
+            None. Stores various entries in internal dictionaries.
+        """
         spec_list = conversion_tools.convert_requirement(r, provider, from_extra=from_extra)
 
         if isinstance(spec_list, conversion_tools.ConversionError):
@@ -525,11 +557,15 @@ class SpackPyPkg:
         name: str,
         pyprojects: list[PyProject],
         pypi_provider: package_providers.PyPIProvider,
-        use_test_prefix: bool = False,
     ) -> None:
-        """Build the spack package from pyprojects."""
+        """Build the spack package from pyprojects.
+
+        This method handles the main conversion of general metadata and all dependencies
+        of a Python package, given as a list of PyProjects corresponding to different
+        versions of the package, to a single Spack package.
+        """
         # get metadata from most recent version
-        self._metadata_from_pyproject(pyprojects[-1], use_test_prefix=use_test_prefix)
+        self._metadata_from_pyproject(pyprojects[-1])
 
         self.num_converted_versions = len(pyprojects)
 
@@ -559,7 +595,7 @@ class SpackPyPkg:
         """Format and write the package to 'outfile'.
 
         By default outfile=sys.stdout. The package can be written directly to a
-        package.py file by supplying the corresponding file object.
+        package.py file by supplying the corresponding opened file object.
         """
         cpright = """\
 # Copyright 2013-2024 Lawrence Livermore National Security, LLC and other
@@ -685,13 +721,14 @@ class SpackPyPkg:
 
             print("", file=outfile)
 
-        # custom key for sorting requirements in package.py:
-        # looks like (is_python, has_variant, pkg_name, pkg_version_list,
-        # variant_string)
         def _requirement_sort_key(
             req: tuple[spec.Spec, spec.Spec],
         ) -> tuple[int, int, str, sv.VersionList, str]:
-            """Helper function for sorting requirements in the package.py."""
+            """Helper function for sorting requirements in the package.py.
+
+            Dependencies are sorted in the package.py according to is_python,
+            has_variant, pkg_name, pkg_version_list, variant string, in that order.
+            """
             dep, when = req
             # != because we want python to come first
             is_python = int(dep.name != "python")
@@ -707,46 +744,101 @@ class SpackPyPkg:
 
             print(f"    with default_args(type={dep_type}):", file=outfile)
             for dep_spec, when_spec in sorted_dependencies:
-                if dep_spec.name not in self.cmake_dependency_names:
-                    print(
-                        "        " + _format_dependency(dep_spec, when_spec),
-                        file=outfile,
-                    )
+                print(
+                    "        " + _format_dependency(dep_spec, when_spec),
+                    file=outfile,
+                )
 
             print("", file=outfile)
 
         # Handle dependencies from CMakeLists.txt for scikit-build-core
         # only print as comments
-        if self.cmake_dependency_names:
+        if self._cmake_dependencies_with_sources:
             print(
                 "\n    # FIXME: The package might have non-python dependencies. The dependencies"
-                " below have been extracted from CMakeLists.txt.",
+                " below have been extracted from included CMakeLists.txt files.",
                 file=outfile,
             )
             print(
-                "    # Please correct and review them manually, and add the ones that are required.\n",
+                "    # Please correct and review them manually, and add the ones that are required.",
+                file=outfile,
+            )
+            print(
+                "    # NOTE: These dependencies have only been extracted from the MOST RECENT package"
+                " version included in this Spack recipe.\n    # Extend these dependencies manually to "
+                "explicitly support older versions.\n",
                 file=outfile,
             )
 
-            # we add all non-python dependencies as build+run dependencies
-            dependencies = self._dependencies_by_type['("build", "run")']
+            for dep_name, dep_list in self._cmake_dependencies_with_sources.items():
+                # get all unique dependency specs for this dependency
+                # e.g. boost, boost@4.2, boost@4.3:
+                unique_specs = {dep_spec for dep_spec, _ in dep_list}
 
-            sorted_dependencies = sorted(dependencies, key=_requirement_sort_key)
+                # if all specs are identical, display this spec on top
+                # otherwise, display a spec with just the dependency name on top and the
+                # detailed specs next to the sources
+                main_spec = (
+                    next(iter(unique_specs)) if len(unique_specs) == 1 else spec.Spec(dep_name)
+                )
+                print(
+                    "        # " + _format_dependency(main_spec, spec.Spec()),
+                    file=outfile,
+                )
+                for current_spec, source_info in dep_list:
+                    current_spec_str = "" if current_spec == main_spec else f"({current_spec})"
 
-            print(f"    # with default_args(type={dep_type}):", file=outfile)
-            for dep_spec, when_spec in sorted_dependencies:
-                if dep_spec.name in self.cmake_dependency_names:
-                    # `pythoninterp` is just a dependency on python
-                    if dep_spec.name == "pythoninterp":
-                        dep_spec.name = "python"
                     print(
-                        "        # " + _format_dependency(dep_spec, when_spec),
+                        f"        #   {source_info[0]}, line {source_info[1]} {current_spec_str}",
                         file=outfile,
                     )
-
-            print("", file=outfile)
+                print("", file=outfile)
 
         print("", file=outfile)
+
+
+def _load_cmakelists_for_pyproject(
+    pyproject: PyProject, provider: package_providers.PackageProvider
+) -> None:
+    """Load and parse the CMakeLists.txt files for a given PyProject/version.
+
+    The first CMakeLists.txt is the one in the root package directory. Afterwards, any
+    subdirectory specified with 'add_subdirectory(...)' is added and searched for
+    additional CMakeLists.txt, which are handled identically. In each CMakeLists.txt
+    file, all 'cmake_minimum_required' and 'find_package' statements are converted
+    to Spack dependency Specs.
+    """
+    subdirectory_queue = [pathlib.Path()]
+    visited_subdirectories = []
+    while subdirectory_queue:
+        current_subdir = subdirectory_queue.pop(0)
+        file_path = current_subdir / "CMakeLists.txt"
+
+        visited_subdirectories.append(current_subdir)
+
+        cmakelists_data = provider.get_file_content_from_sdist(
+            pyproject.name, pyproject.version, file_path
+        )
+
+        if isinstance(cmakelists_data, str):
+            dependencies, new_subdirs = cmake_conversion.convert_cmake_dependencies(cmakelists_data)
+
+            for dep, line_nr in dependencies:
+                if dep.name not in pyproject.cmake_dependencies_with_sources:
+                    pyproject.cmake_dependencies_with_sources[dep.name] = []
+                pyproject.cmake_dependencies_with_sources[dep.name].append(
+                    (dep, (file_path, line_nr))
+                )
+
+            for relative_subdir_path in new_subdirs:
+                subdir_path = current_subdir / relative_subdir_path
+                subdir_path = utils.normalize_path(subdir_path)
+
+                if (
+                    subdir_path not in subdirectory_queue
+                    and subdir_path not in visited_subdirectories
+                ):
+                    subdirectory_queue.append(subdir_path)
 
 
 def _load_pyprojects(
@@ -755,7 +847,11 @@ def _load_pyprojects(
     num_versions: int,
     provider: package_providers.PackageProvider,
 ) -> list[PyProject]:
-    """Load and parse pyprojects and other data for a list of versions."""
+    """Given a list of versions, download and parse the corresponding pyprojects.
+
+    For scikit-build-core packages, also downloads and parses the CMakeLists.txt
+    files for the most recent package version.
+    """
     # for each version, parse pyproject.toml
     pyprojects: list[PyProject] = []
     for i, v in enumerate(reversed(version_list)):
@@ -785,19 +881,12 @@ def _load_pyprojects(
 
         pyprojects.append(pyproject)
 
-        # Handle scikit-build-core packages
-        # for each version, get dependencies/errors
-        # go through simplification process with cmake versions
-        if pyproject.build_backend == "scikit_build_core.build":
-            cmakelists_data = provider.get_file_content_from_sdist(
-                name, v, pathlib.Path("CMakeLists.txt")
-            )
-            if isinstance(cmakelists_data, str):
-                pyproject.cmake_dependencies = cmake_conversion.convert_cmake_dependencies(
-                    cmakelists_data
-                )
+    # Handle scikit-build-core packages
+    # for each version, get dependencies/errors
+    # go through simplification process with cmake versions
 
-            # TODO @davhofer: error handling and displaying errors in package.py
+    if pyprojects and pyprojects[0].build_backend == "scikit_build_core.build":
+        _load_cmakelists_for_pyproject(pyprojects[0], provider)
 
     return pyprojects
 
@@ -807,9 +896,21 @@ def _convert_single(
     pypi_provider: package_providers.PyPIProvider,
     gh_provider: package_providers.GitHubProvider,
     num_versions: int = 10,
-    use_test_prefix: bool = False,
 ) -> SpackPyPkg | None:
-    """Convert a standard Python package to a Spack package.py."""
+    """Convert a standard Python package to a Spack package.py.
+
+    Args:
+        name: Name of the package.
+        pypi_provider: Package Provider for PyPI packages.
+        gh_provider: Package Provider for GitHub packages (used only for the main
+            package, if given as a GitHub repository). Dependencies are always resolved
+            through the PyPI Package Provider.
+        num_versions: Number of versions that should be downloaded and used to build
+            the package dependencies.
+
+    Returns:
+        The converted SpackPyPkg, or None.
+    """
     # go through providers to check if one of them has the package
     is_gh_package = gh_provider.package_exists(name)
     provider = gh_provider if is_gh_package else pypi_provider
@@ -835,7 +936,7 @@ def _convert_single(
     spackpkg.all_versions = versions
 
     # always use PyPIProvider for dependencies
-    spackpkg.build_from_pyprojects(name, pyprojects, pypi_provider, use_test_prefix=use_test_prefix)
+    spackpkg.build_from_pyprojects(name, pyprojects, pypi_provider)
 
     if isinstance(provider, package_providers.PyPIProvider):
         spackpkg.pypi = provider.get_pypi_package_base(name)
@@ -846,14 +947,13 @@ def _convert_single(
         spackpkg.url = url
         spackpkg.git = provider.get_git_repo(name)
         spackpkg.pypi_name = provider.get_package_name(name)
-        spackpkg.name = conversion_tools.pkg_to_spack_name(
-            spackpkg.pypi_name, use_test_prefix=use_test_prefix
-        )
+        spackpkg.name = conversion_tools.pkg_to_spack_name(spackpkg.pypi_name)
 
     return spackpkg
 
 
 def _write_package_to_repo(package: SpackPyPkg, spack_repo: pathlib.Path) -> bool:
+    """Save the package to the repo in a dedicated subdirectory and package.py file."""
     if not spack_repo.is_dir():
         return False
     try:
@@ -874,33 +974,56 @@ def _write_package_to_repo(package: SpackPyPkg, spack_repo: pathlib.Path) -> boo
 
 # TODO @davhofer: allow multiple providers/user specification/check a list of providers for package
 # TODO @davhofer: some sort of progress bar/console output while converting, downloading archives, etc.
-# TODO @davhofer: currently, dependencies for variants/optional dependencies are also converted. Make this optional? Add flag to disable conversion of optional/extra dependencies
-def convert_package(  # noqa: PLR0913 [too many arguments in function definition]
+# TODO @davhofer: currently, dependencies for variants/optional dependencies are also converted. Make this optional? Add flag to disable conversion of optional/extra dependencies. Map dependency name -> is_optional boolean flag
+def convert_package(  # noqa: PLR0913 [too many arguments in function defintion]
     name: str,
     max_conversions: int = 10,
     versions_per_package: int = 10,
     repo: str | None = None,
     ignore: list[str] | None = None,
-    use_test_prefix: bool = False,
+    allow_duplicate: bool = False,
 ) -> None:
     """Convert a package and its dependencies to Spack.
 
-    TODO: docstring with arguments
+    Args:
+        name: Name of the package.
+        max_conversions: Upper limit on the total number of package/dependency
+            conversions, including the specified main package. E.g. setting
+            max_conversions = 1 will only convert the specified package, and no
+            unconverted dependencies.
+        versions_per_package: Number of versions that should be downloaded and
+            used to build the package dependencies.
+        repo: Local Spack repository where all converted packages are stored.
+        ignore: List of packages to ignore during conversion.
+        allow_duplicate: Convert the package, even if a package of the same name
+            already exists in some Spack repo. This will NOT overwrite the existing
+            package. Only applies to the main package to be converted, not to
+            dependencies.
+
+    Returns:
+        None, packages are directly written to the repo.
     """
     ignore_list: list[str] = [] if ignore is None else ignore
 
     spack_repo = spack_utils.get_spack_repo(repo)
-
-    spack_name = conversion_tools.pkg_to_spack_name(name)
-    if spack_utils.package_exists_in_spack(spack_name) and not use_test_prefix:
-        print(f"Package {name} already exists in Spack repository")
-        return
 
     # Explanation of ignore comment: PackageProvider protocol requires the __hash__()
     # method to be implemented, which is done by the @dataclass decorator for
     # PyPIProvider (but mypy does not detect this)
     pypi_provider = package_providers.PyPIProvider()  # type: ignore[abstract]
     gh_provider = package_providers.GitHubProvider()  # type: ignore[abstract]
+
+    # Convert https://github.com/user/package-name to user/package-name
+    gh_repo_name = gh_provider.parse_repo_name(name) if gh_provider.package_exists(name) else name
+    if gh_repo_name is not None:
+        name = gh_repo_name
+
+    pkg_name = gh_provider.get_package_name(name) if gh_provider.package_exists(name) else name
+
+    spack_name = conversion_tools.pkg_to_spack_name(pkg_name)
+    if not allow_duplicate and spack_utils.package_exists_in_spack(spack_name):
+        print(f"Package {spack_name} already exists in Spack")
+        return
 
     # queue of packages to be converted
     queue: list[str] = [name]
@@ -923,7 +1046,6 @@ def convert_package(  # noqa: PLR0913 [too many arguments in function definition
                 pypi_provider,
                 gh_provider,
                 num_versions=versions_per_package,
-                use_test_prefix=use_test_prefix,
             )
 
             if spackpkg is None:
@@ -998,6 +1120,7 @@ def _print_summary(  # noqa: PLR0912 [too many branches]
     conversion_failures: list[str],
     missing_non_python_deps: set[str],
 ) -> None:
+    """Display a short summary about converted packages, dependencies, and errors."""
     if "pythoninterp" in missing_non_python_deps:
         missing_non_python_deps.remove("pythoninterp")
 

@@ -49,28 +49,8 @@ def test_download_bytes_invalid(url: str) -> None:
 
 def test_extract_file_contents_from_tar_bytes_success() -> None:
     """Unit tests for method."""
-    expected = {
-        "tool": {
-            "black": {
-                "line-length": 88,
-            }
-        },
-        "build-system": {
-            "requires": ["hatchling>=1.8.0", "hatch-vcs", "hatch-fancy-pypi-readme"],
-            "build-backend": "hatchling.build",
-        },
-        "project": {
-            "name": "test",
-            "description": "description ...",
-            "license": {"text": "MIT"},
-            "requires-python": ">=3.8",
-            "dependencies": [
-                "packaging>=22.0",
-            ],
-        },
-    }
-    toml_path = "test_archive/pyproject.toml"
-    p = pathlib.Path("tests/test_data/test_archive.tar.gz")
+    toml_path = "sample_archive/pyproject.toml"
+    p = pathlib.Path("tests/sample_data/sample_archive.tar.gz")
     with p.open("rb") as file:
         file_content = file.read()
     assert isinstance(utils.extract_file_content_from_tar_bytes(file_content, toml_path), str)
@@ -78,8 +58,23 @@ def test_extract_file_contents_from_tar_bytes_success() -> None:
 
 def test_extract_file_contents_from_tar_bytes_invalid() -> None:
     """Unit tests for method."""
-    toml_path = "test_archive123/pyproject.toml"
-    p = pathlib.Path("tests/test_data/test_archive.tar.gz")
+    toml_path = "sample_archive123/pyproject.toml"
+    p = pathlib.Path("tests/sample_data/sample_archive.tar.gz")
     with p.open("rb") as file:
         file_content = file.read()
     assert utils.extract_file_content_from_tar_bytes(file_content, toml_path) is None
+
+
+@pytest.mark.parametrize(
+    ("path", "expected"),
+    [
+        (pathlib.Path("a/b/c/d"), pathlib.Path("a/b/c/d")),
+        (pathlib.Path("a/b/./c/d"), pathlib.Path("a/b/c/d")),
+        (pathlib.Path("a/b/../c/d"), pathlib.Path("a/c/d")),
+        (pathlib.Path("a/b/c/d/../../../e/f"), pathlib.Path("a/e/f")),
+        (pathlib.Path("a/b/c/d/../../e/../../f"), pathlib.Path("a/f")),
+        (pathlib.Path("a/b/../../../c"), pathlib.Path("../c")),
+    ],
+)
+def test_normalize_path(path: pathlib.Path, expected: pathlib.Path):
+    assert utils.normalize_path(path) == expected

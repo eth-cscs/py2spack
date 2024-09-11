@@ -194,6 +194,7 @@ def packaging_to_spack_version(v: pv.Version) -> sv.StandardVersion:
 
 
 def _version_type_supported(version: pv.Version) -> bool:
+    """Checks if a packaging version type can be accurately represented in Spack."""
     return version.pre is None or (
         version.post is None and version.dev is None and version.local is None
     )
@@ -202,7 +203,18 @@ def _version_type_supported(version: pv.Version) -> bool:
 def condensed_version_list(
     _subset_of_versions: list[pv.Version], _all_versions: list[pv.Version]
 ) -> sv.VersionList:
-    """Create condensed list of version ranges equivalent to version subset."""
+    """Create condensed list of version ranges equivalent to version subset.
+
+    Args:
+        _subset_of_versions: A list of packaging versions that should be included in the
+            version list.
+        _all_versions: A list of all existing versions of the package.
+
+    Returns:
+        A version list which includes all the versions in _subset_of_versions, but no
+        version in _all_versions which is not in _subset_of_versions.
+
+    """
     # for now, don't support prereleases etc.
     subset_filtered = list(filter(_version_type_supported, _subset_of_versions))
     all_versions_filtered = list(filter(_version_type_supported, _all_versions))
@@ -256,7 +268,17 @@ def _pkg_specifier_set_to_version_list(
     specifier_set: specifiers.SpecifierSet,
     provider: package_providers.PackageProvider,
 ) -> sv.VersionList:
-    """Convert the specifier set to an equivalent list of version ranges."""
+    """Convert the specifier set to an equivalent list of version ranges.
+
+    Args:
+        pkg: name of the package.
+        specifier_set: packaging specifier set, e.g. '>=2.5'.
+        provider: package provider used to look up existing package versions.
+
+    Returns:
+        A version list including only the versions of the package that match the
+            version constraints from the specifier set and none others.
+    """
     all_versions = _get_python_versions() if pkg == "python" else provider.get_versions(pkg)
     result = sv.VersionList()
     if not isinstance(all_versions, package_providers.PackageProviderQueryError):
@@ -269,6 +291,11 @@ def _pkg_specifier_set_to_version_list(
 def _eval_python_version_marker(
     op: str, value: str, provider: package_providers.PackageProvider
 ) -> sv.VersionList | None:
+    """Evaluate a python version constraint marker.
+
+    Returns:
+        A version list including all matching python versions.
+    """
     # TODO @davhofer: there might be still some bug caused by python_version vs
     # python_full_version differences.
     # Also `in` and `not in` are allowed, but difficult to get right. They take
@@ -544,7 +571,7 @@ def evaluate_marker(
 
 
 # TODO @davhofer: verify whether spack name actually corresponds to PyPI package
-def pkg_to_spack_name(name: str, use_test_prefix: bool = False) -> str:
+def pkg_to_spack_name(name: str) -> str:
     """Convert PyPI package name to Spack python package name."""
     spack_name: str = naming.simplify_name(name)
 
@@ -562,9 +589,6 @@ def pkg_to_spack_name(name: str, use_test_prefix: bool = False) -> str:
     ):
         spack_name = f"py-{spack_name}"
 
-    if use_test_prefix:
-        spack_name = f"test-{spack_name}"
-
     return spack_name
 
 
@@ -580,10 +604,11 @@ def convert_requirement(
     is converted into a list of multiple Spack requirements, which all need to
     be added.
 
-    Parameters:
-        r: packaging requirement
-        from_extra: If this requirement an optional requirement dependent on an
-        extra of the main package, supply the extra's name here.
+    Args:
+        r: packaging requirement.
+        provider: Package provider, used to look up existing versions of the package.
+        from_extra: If this requirement stems from an optional requirement/extra of the
+            main package, supply the extra's name here.
 
     Returns:
         A list of tuples of (main_dependency_spec, when_spec).

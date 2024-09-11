@@ -1,3 +1,4 @@
+# Docker image used for performing installation tests with GitHub Actions
 FROM python:3.12
 
 # Install system dependencies

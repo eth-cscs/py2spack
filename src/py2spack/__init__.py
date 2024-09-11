@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 
-__all__ = ["SpackPyPkg"]
+__all__ = ["SpackPyPkg", "convert_package"]
 __version__ = "0.0.1"
 
-from .core import SpackPyPkg
+from .core import SpackPyPkg, convert_package

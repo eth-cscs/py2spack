@@ -1,36 +1,47 @@
 [build-system]
-requires = ["hatchling>=1.18"]  # TODO @davhofer: probably add some version constraints here 
+requires = [
+    "hatchling>=1.18",
+] # TODO @davhofer: probably add some version constraints here
 build-backend = "hatchling.build"
 
 [project]
 name = "py2spack"
-authors = [{name = "davhofer", email = "davhofer@ethz.ch"}]
+authors = [{ name = "davhofer", email = "davhofer@ethz.ch" }]
 readme = "README.md"
-license = {text = "MIT"}
+license = { text = "MIT" }
 classifiers = [
-  "Development Status :: 2 - Pre-Alpha",
-  "Intended Audience :: Developers",
-  "License :: OSI Approved :: MIT License",
-  "Operating System :: OS Independent",
-  "Programming Language :: Python",
-  "Programming Language :: Python :: 3",
-  "Programming Language :: Python :: 3 :: Only",
-  "Programming Language :: Python :: 3.10",
-  "Programming Language :: Python :: 3.11",
-  "Programming Language :: Python :: 3.12",
-  "Topic :: System :: Archiving :: Packaging",
-  "Topic :: Utilities",
-  "Typing :: Typed",
+    "Development Status :: 2 - Pre-Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: System :: Archiving :: Packaging",
+    "Topic :: Utilities",
+    "Typing :: Typed",
 ]
 description = "Tool to create spack package definitions from distributable Python packages."
 dynamic = ["version"]
 dependencies = [
-    "packaging>=20", 
-    "requests>=2.30", 
+    "packaging>=20",
+    "requests>=2.30",
     "tomli>=1.2",
     "cmake_parser>=0.9.2",
 ]
 [project.optional-dependencies]
+docs = [
+    "furo>=2021.10.0",
+    "linkify-it-py>=2.0",
+    "myst-parser>=4.0",
+    "sphinx>=7.4",
+    "sphinx-autodoc2>=0.5.0",
+    "sphinx-book-theme>=1.1",
+    "sphinx-rtd-theme>=2.0",
+]
 tests = ["pytest>=8.0", "pytest-cov>=5.0"]
 
 [project.urls]
@@ -43,7 +54,7 @@ py2spack = "py2spack.cli:main"
 path = "src/py2spack/__init__.py"
 
 [tool.ruff]
-    exclude = [
+exclude = [
     ".bzr",
     ".direnv",
     ".eggs",
@@ -78,43 +89,43 @@ src = ["src"]
 
 [tool.ruff.format]
 docstring-code-format = true
-skip-magic-trailing-comma = false 
+skip-magic-trailing-comma = false
 
 [tool.ruff.lint]
 extend-safe-fixes = ["D", "TCH"]
 extend-select = [
-  "A",  # flake8-builtins
-  "B",  # flake8-bugbear
-  "I",  # isort
-  "G",  # flake8-logging-format
-  "N",  # pep8-naming
-  "W",  # pycodestyle-warning
-  "C4",  # flake8-comprehensions
-  "C90",  # mccabe
-  "D",  # pydocstyle
-  "D213",  # multi-line-summary-second-line (off by default in pydocstyle "google' convention)
-  "PT",  # flake8-pytest-style
-  "TD",  # flake8-todo
-  "UP",  # pyupgrade
-  "ARG",  # flake8-unused-arguments
-  "ERA",  # eradicate
-  "FLY",  # flynt
-  "ICN",  # flake8-import-conventions
-  "PERF",  # Perflint
-  "PGH",  # pygrep-hooks
-  "PIE",  # flake8-pie
-  "PL",  # pylint
-  "PTH",  # flake8-use-pathlib
-  "RET",  # flake8-return
-  "RUF",  # Ruff-specific
-  "SIM",  # flake8-simplify
-  "T10",  # flake8-debugger
-  "T20",  # flake8-print
-  "TCH",  # flake8-type-checking
+    "A",    # flake8-builtins
+    "B",    # flake8-bugbear
+    "I",    # isort
+    "G",    # flake8-logging-format
+    "N",    # pep8-naming
+    "W",    # pycodestyle-warning
+    "C4",   # flake8-comprehensions
+    "C90",  # mccabe
+    "D",    # pydocstyle
+    "D213", # multi-line-summary-second-line (off by default in pydocstyle "google' convention)
+    "PT",   # flake8-pytest-style
+    "TD",   # flake8-todo
+    "UP",   # pyupgrade
+    "ARG",  # flake8-unused-arguments
+    "ERA",  # eradicate
+    "FLY",  # flynt
+    "ICN",  # flake8-import-conventions
+    "PERF", # Perflint
+    "PGH",  # pygrep-hooks
+    "PIE",  # flake8-pie
+    "PL",   # pylint
+    "PTH",  # flake8-use-pathlib
+    "RET",  # flake8-return
+    "RUF",  # Ruff-specific
+    "SIM",  # flake8-simplify
+    "T10",  # flake8-debugger
+    "T20",  # flake8-print
+    "TCH",  # flake8-type-checking
 ]
 ignore = [
     "TD003", # [missing-todo-link]
-    "T201", # [print]
+    "T201",  # [print]
 ]
 
 
@@ -125,28 +136,26 @@ convention = "google"
 combine-as-imports = true
 known-first-party = ["py2spack"]
 known-third-party = [
-  "packaging",
-  "requests",
-  "tomli",
-  "typing_extensions",
-  "cmake_parser",
+    "packaging",
+    "requests",
+    "tomli",
+    "typing_extensions",
+    "cmake_parser",
 ]
 lines-after-imports = 2
 order-by-type = true
 required-imports = ["from __future__ import annotations"]
 section-order = [
-  "future",
-  "standard-library",
-  "third-party",
-  "first-party",
-  "tests",
-  "local-folder",
+    "future",
+    "standard-library",
+    "third-party",
+    "first-party",
+    "tests",
+    "local-folder",
 ]
 
 [tool.ruff.lint.isort.sections]
-tests = [
-  "tests",
-]
+tests = ["tests"]
 
 [tool.ruff.lint.mccabe]
 max-complexity = 12
@@ -177,7 +186,7 @@ python_version = "3.10"
 show_column_numbers = true
 show_error_codes = true
 warn_redundant_casts = true
-warn_return_any = true  
+warn_return_any = true
 warn_unreachable = true
 warn_unused_configs = true
 warn_unused_ignores = true
@@ -186,15 +195,14 @@ warn_unused_ignores = true
 disallow_incomplete_defs = false
 disallow_untyped_defs = false
 ignore_missing_imports = true
-module = [
-  "spack.*",
-  "cmake_parser",
-]
+module = ["spack.*", "cmake_parser"]
 
 [tool.pytest.ini_options]
 minversion = "6.0"
-addopts = ["-ra", "--showlocals", "--strict-markers", "--strict-config", "--ignore=tests/test_data/"]
-testpaths = [
-    "tests",
+addopts = [
+    "-ra",
+    "--showlocals",
+    "--strict-markers",
+    "--strict-config",
 ]
-
+testpaths = ["tests"]
